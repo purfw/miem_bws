@@ -1,0 +1,16 @@
+{% extends 'console/section.html' %}
+{% block description %}История действий в системе, от новых к старым. Журнал доступен только для просмотра.{% endblock %}
+{% block section_content %}
+  <ol class="event-list">
+    {% for item in audit_items %}
+      <li class="panel record event">
+        <time>{{ item.occurred_at|date:'d.m.Y H:i:s' }}</time>
+        <h2>{{ item.event_type }}</h2>
+        <dl class="record-facts">
+          <div><dt>Оператор / пользователь</dt><dd>{{ item.actor_id|default:'Система' }}</dd></div>
+          <div><dt>Объект</dt><dd>{{ item.entity_type|default:'—' }}{% if item.entity_id %}<br>{{ item.entity_id }}{% endif %}</dd></div>
+        </dl>
+      </li>
+    {% empty %}{% if not errors %}<li class="panel empty-state"><h2>Записей на этой странице нет</h2><p>Действия появятся в журнале после работы с платформой.</p></li>{% endif %}{% endfor %}
+  </ol>
+{% endblock %}

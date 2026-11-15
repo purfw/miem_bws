@@ -1,0 +1,11 @@
+[Unit]
+Description=Prepare and archive ConfHub audit partitions
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/srv/confhub/back/scripts/audit-maintenance.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

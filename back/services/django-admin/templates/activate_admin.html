@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+{% block title %}Активация доступа · ConfHub{% endblock %}
+{% block content %}<div class="onboarding panel">
+{% if expired %}<h1>Приглашение недействительно</h1><p>Ссылка истекла, была использована или отозвана. Попросите администратора создать новое приглашение.</p><a class="button secondary" href="{% url 'login' %}">Ко входу</a>
+{% else %}<h1>Настройте доступ к админке</h1>
+<p>Логин: <strong>{{ invitation.username }}</strong>.</p>
+<p>Доступ: {% for role in invitation.roles %}{{ role }}{% if not forloop.last %}, {% endif %}{% endfor %}.</p>
+<h2>1. Подключите 2FA</h2><p>В приложении-аутентификаторе добавьте аккаунт вручную. Название — ConfHub, тип кода — по времени (TOTP).</p>
+<label for="setup-secret">Ключ для приложения</label><input class="secret" id="setup-secret" readonly style="width:100%" value="{{ setup_secret }}" onclick="this.select()">
+<p><a href="{{ otp_uri }}">Открыть в приложении-аутентификаторе</a></p>
+<h2>2. Задайте пароль и подтвердите код</h2><p>Пароль должен содержать не менее 12 символов.</p>
+<form class="form-grid" method="post">{% csrf_token %}{{ form.as_div }}<button>Активировать доступ</button></form>
+<p class="muted">У каждого сотрудника собственные пароль и 2FA. Для последующих входов открывайте админку через SSH-туннель.</p>
+{% endif %}</div>{% endblock %}

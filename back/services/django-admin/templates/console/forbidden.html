@@ -1,0 +1,6 @@
+{% extends 'console/base.html' %}
+{% block title %}Доступ ограничен · ConfHub{% endblock %}
+{% block content %}
+  <header class="page-heading"><h1>Недостаточно прав</h1><p>Вашей роли недоступен этот раздел или действие.</p></header>
+  <div class="panel"><p>Выберите доступный раздел в навигации. Если права нужно изменить, обратитесь к администратору.</p><a class="button secondary" href="{% url 'dashboard' %}">К доступным разделам</a></div>
+{% endblock %}

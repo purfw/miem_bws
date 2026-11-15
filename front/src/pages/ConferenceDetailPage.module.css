@@ -1,0 +1,141 @@
+.page {
+  max-width: var(--container-max);
+}
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, calc(var(--space-8) * 6));
+  grid-template-areas: "hero actions" "body actions";
+  gap: var(--space-5);
+  align-items: start;
+}
+.layout .hero {
+  grid-area: hero;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+.hero h1 {
+  overflow-wrap: anywhere;
+}
+.actionCard {
+  grid-area: actions;
+  position: sticky;
+  top: var(--space-5);
+  display: grid;
+  gap: var(--space-5);
+  min-width: 0;
+  padding: var(--space-5);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+.facts {
+  display: grid;
+  gap: var(--space-4);
+  margin: 0;
+}
+.facts div {
+  display: grid;
+  gap: var(--space-1);
+}
+.facts dt {
+  color: var(--color-text-light);
+  font-size: var(--space-3);
+}
+.facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.mainActions {
+  display: grid;
+  gap: var(--space-3);
+}
+.mainActions > * {
+  width: 100%;
+  min-width: 0;
+}
+.tertiaryActions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-1);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border-hover);
+}
+.tertiaryActions > * {
+  min-width: 0;
+  padding-inline: var(--space-1);
+  font-size: var(--space-3);
+}
+.tertiaryActions .activeAction {
+  color: var(--color-accent-text);
+  background: var(--color-surface-muted);
+}
+.icon {
+  width: var(--space-4);
+  height: var(--space-4);
+}
+.body {
+  grid-area: body;
+  min-width: 0;
+}
+.body > [role="alert"],
+.body > p {
+  margin-bottom: var(--space-4);
+}
+.body a:focus-visible,
+.tabs button:focus-visible {
+  outline: var(--space-1) solid var(--color-accent-text);
+  outline-offset: calc(-1 * var(--space-1));
+}
+.body .tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  overflow: visible;
+  margin-top: 0;
+}
+.tabs button {
+  min-height: var(--space-7);
+  padding: var(--space-2) var(--space-1);
+}
+.notice {
+  color: var(--color-text-light);
+}
+.shortLabel {
+  display: none;
+}
+@media (max-width: 1279px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr) minmax(0, calc(var(--space-8) * 5));
+  }
+  .auxiliaryLabel,
+  .fullLabel {
+    display: none;
+  }
+  .shortLabel {
+    display: inline;
+  }
+  .body .tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 767px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "hero" "actions" "body";
+  }
+  .actionCard {
+    position: static;
+    padding: var(--space-4);
+    gap: var(--space-4);
+  }
+  .tertiaryActions {
+    order: -2;
+    padding-top: 0;
+    padding-bottom: var(--space-3);
+    border-top: 0;
+    border-bottom: 1px solid var(--color-border-hover);
+  }
+  .mainActions {
+    order: -1;
+  }
+}

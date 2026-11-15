@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<html><body style="font-family: Arial, sans-serif; line-height: 1.5;">
+<h2>Обращение в поддержку</h2>
+<table cellpadding="4" style="border-collapse: collapse;">
+  <tr><td><b>Тема</b></td><td>{{.Topic}}</td></tr>
+  <tr><td><b>Заголовок</b></td><td>{{.Subject}}</td></tr>
+  <tr><td><b>От</b></td><td>{{.Name}} &lt;{{.Email}}&gt;</td></tr>
+  <tr><td><b>Номер</b></td><td>{{.ID}}</td></tr>
+</table>
+<hr>
+<div style="white-space: pre-wrap;">{{.Message}}</div>
+</body></html>

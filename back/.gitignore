@@ -1,0 +1,28 @@
+# Build / vendoring
+bin/
+vendor/
+
+# Secrets and env
+.env
+.env.local
+.env.prod
+secrets/
+.env.lab
+secrets/jwt_ed25519.key
+secrets/jwt_ed25519.pub
+secrets/certs/
+secrets/admin-credentials.txt
+secrets/admin-auth/
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+*.swp
+
+# Go test / coverage
+coverage.out
+*.test
+__pycache__/
+.pytest_cache/
+.ruff_cache/

@@ -1,0 +1,5 @@
+<nav class="pagination" aria-label="Страницы раздела">
+  {% if previous_url %}<a class="button secondary" href="{{ previous_url }}">Предыдущая</a>{% endif %}
+  <span>Страница {{ page }}</span>
+  {% if next_url %}<a class="button secondary" href="{{ next_url }}">Следующая</a>{% endif %}
+</nav>

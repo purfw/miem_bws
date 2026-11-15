@@ -1,0 +1,10 @@
+[Unit]
+Description=Renew the short-lived Let's Encrypt certificate for ConfHub
+Requires=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker run --rm --pull=never -v /etc/letsencrypt:/etc/letsencrypt -v /var/lib/letsencrypt:/var/lib/letsencrypt -v /var/www/letsencrypt:/var/www/letsencrypt certbot/certbot:v5.7.0 renew --quiet --no-random-sleep-on-renew
+ExecStart=/usr/sbin/nginx -t
+ExecStart=/bin/systemctl reload nginx

@@ -1,0 +1,25 @@
+branch_protection:
+  policies:
+    ## Защита основной ветки: только через PR, запрет force push и удаления
+    - target: default_branch
+      message: "Прямой push в основную ветку запрещён. Создайте предложение изменений (PR)."
+      rules:
+        - prevent_force_push
+        - prevent_non_pr_changes
+        - prevent_deletion
+
+    ## Правила именования веток: разрешены только feature/*, bugfix/*, hotfix/*, chore/*, release/*
+    - target: branch
+      matches: ["**", "!feature/*", "!bugfix/*", "!hotfix/*", "!chore/*", "!release/*", "!dev", "!devsecops", "!ci", "!main"]
+      message: "Используйте правильное именование веток: feature/*, bugfix/*, hotfix/*, chore/*, release/*"
+      rules:
+        - prevent_creation
+
+    ## Защита тегов: ручное создание/удаление запрещено
+    - target: tag
+      matches: "*"
+      message: "Ручное создание и удаление тегов запрещено. Используйте Releaser."
+      rules:
+        - prevent_creation
+        - prevent_deletion
+        - prevent_update

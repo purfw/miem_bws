@@ -1,0 +1,183 @@
+# Отказоустойчивый контур: PostgreSQL (Patroni + etcd) и кластер NATS JetStream.
+# Подключается поверх docker-compose.prod.yml:
+#
+#   docker compose -f docker-compose.prod.yml -f docker-compose.build.yml \
+#                  -f docker-compose.ha.yml --env-file .env.prod up -d --build
+#
+# При деплое включается флагом CONFHUB_HA=1 (scripts/deploy.sh). Данные одиночных
+# PostgreSQL и NATS переносятся через копию: порядок описан в docs/RELIABILITY.md.
+
+x-etcd: &etcd
+  image: quay.io/coreos/etcd:v3.5.21
+  healthcheck:
+    test: ["CMD", "etcdctl", "endpoint", "health"]
+    interval: 10s
+    timeout: 5s
+    retries: 10
+  restart: unless-stopped
+
+x-etcd-env: &etcd-env
+  ETCD_DATA_DIR: /etcd-data
+  ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+  ETCD_LISTEN_PEER_URLS: http://0.0.0.0:2380
+  ETCD_INITIAL_CLUSTER: etcd-1=http://etcd-1:2380,etcd-2=http://etcd-2:2380,etcd-3=http://etcd-3:2380
+  ETCD_INITIAL_CLUSTER_STATE: new
+  ETCD_INITIAL_CLUSTER_TOKEN: confhub-etcd
+
+x-patroni: &patroni
+  image: !reset null
+  build:
+    context: ./postgres-ha
+  init: true
+  stop_grace_period: 60s
+  healthcheck: !override
+    test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8008/health > /dev/null || exit 1"]
+    interval: 10s
+    timeout: 5s
+    retries: 30
+  depends_on:
+    etcd-1: { condition: service_healthy }
+    etcd-2: { condition: service_healthy }
+    etcd-3: { condition: service_healthy }
+  restart: unless-stopped
+
+x-patroni-env: &patroni-env
+  PATRONI_SCOPE: confhub
+  PATRONI_ETCD3_HOSTS: etcd-1:2379,etcd-2:2379,etcd-3:2379
+  PATRONI_SUPERUSER_USERNAME: ${POSTGRES_USER:?POSTGRES_USER is required}
+  PATRONI_SUPERUSER_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+  PATRONI_REPLICATION_USERNAME: replicator
+  PATRONI_REPLICATION_PASSWORD: ${PG_REPLICATION_PASSWORD:?PG_REPLICATION_PASSWORD is required}
+  POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+  SVC_DB_PASSWORD: ${SVC_DB_PASSWORD:?SVC_DB_PASSWORD is required}
+
+x-nats: &nats
+  image: nats:2.10-alpine
+  healthcheck:
+    test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8222/healthz > /dev/null || exit 1"]
+    interval: 10s
+    timeout: 5s
+    retries: 10
+  restart: unless-stopped
+
+# Клиент подключается к любому доступному узлу и сам переходит на другой при обрыве.
+x-nats-url: &nats-url nats://nats:4222,nats://nats-2:4222,nats://nats-3:4222
+
+services:
+  etcd-1:
+    <<: *etcd
+    environment:
+      <<: *etcd-env
+      ETCD_NAME: etcd-1
+      ETCD_ADVERTISE_CLIENT_URLS: http://etcd-1:2379
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://etcd-1:2380
+    volumes: [etcd1data:/etcd-data]
+    networks:
+      data: { ipv4_address: "${CONFHUB_NET_PREFIX:-172.28}.30.61" }
+
+  etcd-2:
+    <<: *etcd
+    environment:
+      <<: *etcd-env
+      ETCD_NAME: etcd-2
+      ETCD_ADVERTISE_CLIENT_URLS: http://etcd-2:2379
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://etcd-2:2380
+    volumes: [etcd2data:/etcd-data]
+    networks:
+      data: { ipv4_address: "${CONFHUB_NET_PREFIX:-172.28}.30.62" }
+
+  etcd-3:
+    <<: *etcd
+    environment:
+      <<: *etcd-env
+      ETCD_NAME: etcd-3
+      ETCD_ADVERTISE_CLIENT_URLS: http://etcd-3:2379
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://etcd-3:2380
+    volumes: [etcd3data:/etcd-data]
+    networks:
+      data: { ipv4_address: "${CONFHUB_NET_PREFIX:-172.28}.30.63" }
+
+  # Узел 1 заменяет одиночный PostgreSQL из docker-compose.prod.yml.
+  postgres:
+    <<: *patroni
+    environment: !override
+      <<: *patroni-env
+      PATRONI_NAME: postgres
+      PATRONI_RESTAPI_CONNECT_ADDRESS: postgres:8008
+      PATRONI_POSTGRESQL_CONNECT_ADDRESS: postgres:5432
+    volumes: !override
+      - pgha1data:/var/lib/postgresql/data
+      - ./scripts/postgres-init.sql:/etc/confhub/postgres-init.sql:ro
+
+  postgres-2:
+    <<: *patroni
+    environment:
+      <<: *patroni-env
+      PATRONI_NAME: postgres-2
+      PATRONI_RESTAPI_CONNECT_ADDRESS: postgres-2:8008
+      PATRONI_POSTGRESQL_CONNECT_ADDRESS: postgres-2:5432
+    volumes:
+      - pgha2data:/var/lib/postgresql/data
+      - ./scripts/postgres-init.sql:/etc/confhub/postgres-init.sql:ro
+    networks:
+      data: { ipv4_address: "${CONFHUB_NET_PREFIX:-172.28}.30.52" }
+
+  # Узел 1 заменяет одиночный NATS из docker-compose.prod.yml.
+  nats:
+    command: ["-js", "-sd", "/data", "-m", "8222", "--server_name", "nats-1", "--cluster_name", "confhub",
+              "--cluster", "nats://0.0.0.0:6222", "--routes", "nats://nats:6222,nats://nats-2:6222,nats://nats-3:6222"]
+
+  nats-2:
+    <<: *nats
+    command: ["-js", "-sd", "/data", "-m", "8222", "--server_name", "nats-2", "--cluster_name", "confhub",
+              "--cluster", "nats://0.0.0.0:6222", "--routes", "nats://nats:6222,nats://nats-2:6222,nats://nats-3:6222"]
+    volumes: [nats2data:/data]
+    networks:
+      broker: { ipv4_address: "${CONFHUB_NET_PREFIX:-172.28}.40.82" }
+
+  nats-3:
+    <<: *nats
+    command: ["-js", "-sd", "/data", "-m", "8222", "--server_name", "nats-3", "--cluster_name", "confhub",
+              "--cluster", "nats://0.0.0.0:6222", "--routes", "nats://nats:6222,nats://nats-2:6222,nats://nats-3:6222"]
+    volumes: [nats3data:/data]
+    networks:
+      broker: { ipv4_address: "${CONFHUB_NET_PREFIX:-172.28}.40.83" }
+
+  # Сервисы получают оба узла PostgreSQL; target_session_attrs=read-write
+  # заставляет драйвер выбрать текущего лидера.
+  identity-svc:
+    environment:
+      DATABASE_URL: postgres://identity_svc:${SVC_DB_PASSWORD}@postgres:5432,postgres-2:5432/${POSTGRES_DB}?sslmode=disable&target_session_attrs=read-write
+      NATS_URL: *nats-url
+      NATS_STREAM_REPLICAS: "3"
+
+  conference-svc:
+    environment:
+      DATABASE_URL: postgres://conference_svc:${SVC_DB_PASSWORD}@postgres:5432,postgres-2:5432/${POSTGRES_DB}?sslmode=disable&target_session_attrs=read-write
+      NATS_URL: *nats-url
+      NATS_STREAM_REPLICAS: "3"
+
+  application-svc:
+    environment:
+      DATABASE_URL: postgres://application_svc:${SVC_DB_PASSWORD}@postgres:5432,postgres-2:5432/${POSTGRES_DB}?sslmode=disable&target_session_attrs=read-write
+      NATS_URL: *nats-url
+      NATS_STREAM_REPLICAS: "3"
+
+  engagement-svc:
+    environment:
+      DATABASE_URL: postgres://engagement_svc:${SVC_DB_PASSWORD}@postgres:5432,postgres-2:5432/${POSTGRES_DB}?sslmode=disable&target_session_attrs=read-write
+      NATS_URL: *nats-url
+      NATS_STREAM_REPLICAS: "3"
+
+  django-admin:
+    environment:
+      DATABASE_URL: postgres://django_reader:${SVC_DB_PASSWORD}@postgres:5432,postgres-2:5432/${POSTGRES_DB}?sslmode=disable&target_session_attrs=read-write
+
+volumes:
+  etcd1data:
+  etcd2data:
+  etcd3data:
+  pgha1data:
+  pgha2data:
+  nats2data:
+  nats3data:

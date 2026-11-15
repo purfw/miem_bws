@@ -1,0 +1,188 @@
+.sidebar {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border-hover);
+  padding: 20px;
+  max-width: 260px;
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.title {
+  font-weight: 600;
+  font-size: 14px;
+  font-family: var(--font-family);
+  font-weight: 500;
+}
+
+.reset {
+  font-family: var(--font4);
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  padding: 0;
+}
+
+.reset:hover {
+  color: var(--color-accent);
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.groupTitle {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  font-family: var(--font-family);
+  font-weight: 400;
+  line-height: 140%;
+  color: #3d3a34;
+
+}
+
+.label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+}
+
+.checkbox {
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  border-radius: 3px;
+  border: 1px solid var(--color-border);
+  background-color: var(--color-surface);
+  cursor: pointer;
+  display: inline-block;
+}
+
+.checkbox:checked {
+  background-color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.checkbox:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-accent) 35%, transparent);
+  outline-offset: 2px;
+}
+
+.count {
+  font-family: var(--second-family);
+  font-weight: 400;
+  font-size: 11px;
+  line-height: 100%;
+  color: #78746c;
+}
+
+.showAll {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: var(--font-family);
+  font-weight: 500;
+  font-size: 12px;
+  line-height: 100%;
+  text-decoration: underline;
+  text-decoration-skip-ink: none;
+  color: var(--color-accent-text);
+}
+
+.showAll:hover {
+  color: var(--color-accent);
+}
+
+.period {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+}
+
+.period label {
+  min-width: 0;
+}
+
+.periodInput {
+  width: 100%;
+  padding: 8px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  font-family: var(--font-family);
+  font-size: 13px;
+  outline: none;
+}
+
+.periodInput:focus {
+  border-color: var(--color-accent);
+}
+
+.cityInput {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.cityInput:focus {
+  border-color: var(--color-accent);
+}
+
+.divider {
+  height: 1px;
+  width: 100%;
+  background-color: var(--color-border-hover);
+  border: none;
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 900px) {
+  .sidebar {
+    max-width: none;
+  }
+}

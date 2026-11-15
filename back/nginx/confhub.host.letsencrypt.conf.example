@@ -1,0 +1,57 @@
+# Host-level nginx configuration after a Let's Encrypt IP certificate has
+# been issued. IP certificates use the shortlived profile and must renew
+# automatically.
+log_format confhub_safe escape=json '{"time":"$time_iso8601","client":"$remote_addr","method":"$request_method","path":"$uri","status":$status,"duration":$request_time}';
+
+server {
+    access_log /var/log/nginx/access.log confhub_safe;
+    listen 80;
+    listen [::]:80;
+    server_name 91.132.58.253;
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/letsencrypt;
+        default_type text/plain;
+        try_files $uri =404;
+    }
+
+    location / {
+        return 301 https://91.132.58.253$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    access_log /var/log/nginx/access.log confhub_safe;
+    listen [::]:443 ssl;
+    server_name 91.132.58.253;
+
+    ssl_certificate     /etc/letsencrypt/live/91.132.58.253/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/91.132.58.253/privkey.pem;
+    ssl_protocols TLSv1.3;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:ConfHubSSL:10m;
+
+    client_max_body_size 25m;
+
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    location ^~ /admin/ {
+        return 404;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:18080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Request-ID $request_id;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 60s;
+    }
+}

@@ -1,0 +1,16 @@
+[Unit]
+Description=ConfHub container firewall (nftables policy from firewall/policy.conf)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Containers are started by Docker after a reboot; wait until the gateway is up.
+ExecStartPre=/bin/sh -c 'for i in $(seq 1 60); do docker inspect -f "{{.State.Running}}" confhub-nginx-1 2>/dev/null | grep -q true && exit 0; sleep 2; done; exit 1'
+ExecStart=/srv/confhub/back/scripts/firewall.sh apply
+ExecReload=/srv/confhub/back/scripts/firewall.sh apply
+ExecStop=/srv/confhub/back/scripts/firewall.sh down
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,56 @@
+services:
+  identity-svc:
+    image: !reset null
+    build:
+      context: .
+      dockerfile: services/identity-svc/Dockerfile
+  conference-svc:
+    image: !reset null
+    build:
+      context: .
+      dockerfile: services/conference-svc/Dockerfile
+  application-svc:
+    image: !reset null
+    build:
+      context: .
+      dockerfile: services/application-svc/Dockerfile
+  engagement-svc:
+    image: !reset null
+    build:
+      context: .
+      dockerfile: services/engagement-svc/Dockerfile
+    depends_on:
+      postgres: { condition: service_healthy }
+      nats: { condition: service_healthy }
+      mailpit: { condition: service_started }
+
+  frontend:
+    image: !reset null
+    build:
+      context: ../front
+      dockerfile: Dockerfile
+
+  mailpit:
+    networks:
+      app:
+        ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.20.41
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+
+  django-admin:
+    image: !reset null
+    build:
+      context: ./services/django-admin
+      dockerfile: Dockerfile
+
+  nginx:
+    volumes: !override
+      - ./nginx/nginx.deploy.conf:/etc/nginx/nginx.conf:ro
+      - ${TLS_CERTS_DIR:?TLS_CERTS_DIR is required}:/etc/nginx/certs:ro
+    depends_on: !override
+      - identity-svc
+      - conference-svc
+      - application-svc
+      - engagement-svc
+      - django-admin
+      - frontend

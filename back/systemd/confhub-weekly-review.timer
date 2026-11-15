@@ -1,0 +1,11 @@
+[Unit]
+Description=Review ConfHub audit and delivery queues weekly
+
+[Timer]
+OnCalendar=Mon *-*-* 04:30:00 Europe/Moscow
+RandomizedDelaySec=15m
+Persistent=true
+Unit=confhub-weekly-review.service
+
+[Install]
+WantedBy=timers.target

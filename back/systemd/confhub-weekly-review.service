@@ -1,0 +1,9 @@
+[Unit]
+Description=Generate the ConfHub weekly security and delivery review
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/srv/confhub/back/scripts/weekly-review.sh
+Nice=10

@@ -1,0 +1,7 @@
+<!DOCTYPE html>
+<html><body style="font-family: Arial, sans-serif; line-height: 1.5;">
+<h2>Решение по вашей заявке</h2>
+<p>Здравствуйте, {{.UserName}}!</p>
+<p>Статус вашей заявки на конференцию <strong>{{.ConferenceTitle}}</strong> изменён на <strong>{{.NewStatus}}</strong>.</p>
+{{if .Comment}}<p>Комментарий модератора:</p><blockquote>{{.Comment}}</blockquote>{{end}}
+</body></html>

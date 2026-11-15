@@ -1,0 +1,17 @@
+{% extends 'console/base.html' %}
+{% block title %}{{ section_title }} · ConfHub{% endblock %}
+{% block content %}
+  <header class="page-heading">
+    <h1>{{ section_title }}</h1>
+    <p>{% block description %}{% endblock %}</p>
+  </header>
+  {% if notice %}<div class="message notice" role="status"><p>{{ notice }}</p></div>{% endif %}
+  {% for error in errors %}
+    <div class="message error" role="alert">
+      <p>{{ error }}</p>
+      <div class="actions"><a class="button secondary" href="{{ retry_url }}">Повторить загрузку</a></div>
+    </div>
+  {% endfor %}
+  {% block section_content %}{% endblock %}
+  {% block pagination %}{% include 'console/pagination.html' %}{% endblock %}
+{% endblock %}

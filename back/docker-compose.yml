@@ -1,0 +1,234 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: confhub
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run `make secrets`}
+      SVC_DB_PASSWORD: ${SVC_DB_PASSWORD:?run `make secrets`}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/postgres-init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d confhub"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  nats:
+    image: nats:2.10-alpine
+    command: ["-js", "-sd", "/data", "-m", "8222"]
+    volumes:
+      - natsdata:/data
+
+  minio:
+    image: minio/minio:latest
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?run `make secrets`}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?run `make secrets`}
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/minio/health/ready || exit 1"]
+      interval: 10s
+      retries: 5
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.19.0
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      node.store.allow_mmap: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS 'http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow' > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  mailpit:
+    image: axllent/mailpit:latest
+
+  identity-svc:
+    build:
+      context: .
+      dockerfile: services/identity-svc/Dockerfile
+    environment:
+      PORT: 8081
+      DATABASE_URL: postgres://identity_svc:${SVC_DB_PASSWORD:?run `make secrets`}@postgres:5432/confhub?sslmode=disable
+      REDIS_URL: redis://redis:6379/0
+      NATS_URL: nats://nats:4222
+      JWT_PRIVATE_KEY_PATH: /run/secrets/jwt_private
+      JWT_PUBLIC_KEY_PATH: /run/secrets/jwt_public
+      JWT_ISSUER: confhub
+      ACCESS_TOKEN_TTL: 15m
+      REFRESH_TOKEN_TTL: 168h
+      SERVICE_TOKEN_SECRET: ${SERVICE_TOKEN_SECRET:?run `make secrets`}
+      LOG_LEVEL: info
+      COOKIE_SECURE: "false"
+      BASE_URL: http://localhost
+      ORCID_CLIENT_ID: ${ORCID_CLIENT_ID:-}
+      ORCID_CLIENT_SECRET: ${ORCID_CLIENT_SECRET:-}
+    volumes:
+      - ./secrets/jwt_ed25519.key:/run/secrets/jwt_private:ro
+      - ./secrets/jwt_ed25519.pub:/run/secrets/jwt_public:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      nats: { condition: service_started }
+    restart: unless-stopped
+
+  conference-svc:
+    build:
+      context: .
+      dockerfile: services/conference-svc/Dockerfile
+    environment:
+      PORT: 8082
+      DATABASE_URL: postgres://conference_svc:${SVC_DB_PASSWORD:?run `make secrets`}@postgres:5432/confhub?sslmode=disable
+      REDIS_URL: redis://redis:6379/0
+      NATS_URL: nats://nats:4222
+      JWT_PUBLIC_KEY_PATH: /run/secrets/jwt_public
+      JWT_ISSUER: confhub
+      SERVICE_TOKEN_SECRET: ${SERVICE_TOKEN_SECRET:?run `make secrets`}
+      JOIN_URL_ENCRYPTION_KEY: ${JOIN_URL_ENCRYPTION_KEY:?run `make secrets`}
+      JOIN_URL_ENCRYPTION_KEYS: ${JOIN_URL_ENCRYPTION_KEYS:-}
+      JOIN_URL_ACTIVE_KEY_VERSION: ${JOIN_URL_ACTIVE_KEY_VERSION:-1}
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      ELASTICSEARCH_INDEX: confhub-conferences-v1
+      SEARCH_RATE_LIMIT: "200"
+      LOG_LEVEL: info
+    volumes:
+      - ./secrets/jwt_ed25519.pub:/run/secrets/jwt_public:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      nats: { condition: service_started }
+      elasticsearch: { condition: service_healthy }
+    restart: unless-stopped
+
+  application-svc:
+    build:
+      context: .
+      dockerfile: services/application-svc/Dockerfile
+    environment:
+      PORT: 8083
+      DATABASE_URL: postgres://application_svc:${SVC_DB_PASSWORD:?run `make secrets`}@postgres:5432/confhub?sslmode=disable
+      REDIS_URL: redis://redis:6379/0
+      NATS_URL: nats://nats:4222
+      JWT_PUBLIC_KEY_PATH: /run/secrets/jwt_public
+      JWT_ISSUER: confhub
+      SERVICE_TOKEN_SECRET: ${SERVICE_TOKEN_SECRET:?run `make secrets`}
+      CONFERENCE_SVC_URL: http://conference-svc:8082
+      IDENTITY_SVC_URL: http://identity-svc:8081
+      BASE_URL: http://localhost:8080
+      PDF_FONT_PATH: /usr/share/fonts/dejavu/DejaVuSans.ttf
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:?run `make secrets`}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?run `make secrets`}
+      MINIO_BUCKET: application-files
+      MINIO_USE_SSL: "false"
+      MAX_FILE_SIZE_BYTES: "20971520"
+      ORCID_PUBLICATION_THRESHOLD: ${ORCID_PUBLICATION_THRESHOLD:-5}
+      LOG_LEVEL: info
+    volumes:
+      - ./secrets/jwt_ed25519.pub:/run/secrets/jwt_public:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      nats: { condition: service_started }
+      minio: { condition: service_started }
+    restart: unless-stopped
+
+  engagement-svc:
+    build:
+      context: .
+      dockerfile: services/engagement-svc/Dockerfile
+    environment:
+      PORT: 8084
+      DATABASE_URL: postgres://engagement_svc:${SVC_DB_PASSWORD:?run `make secrets`}@postgres:5432/confhub?sslmode=disable
+      REDIS_URL: redis://redis:6379/0
+      NATS_URL: nats://nats:4222
+      JWT_PUBLIC_KEY_PATH: /run/secrets/jwt_public
+      JWT_ISSUER: confhub
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_FROM: noreply@confhub.example.com
+      SUPPORT_EMAIL: ${SUPPORT_EMAIL:-support@confhub.example.com}
+      BASE_URL: http://localhost
+      IDENTITY_SVC_URL: http://identity-svc:8081
+      SERVICE_TOKEN_SECRET: ${SERVICE_TOKEN_SECRET:?run `make secrets`}
+      LOG_LEVEL: info
+    volumes:
+      - ./secrets/jwt_ed25519.pub:/run/secrets/jwt_public:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      nats: { condition: service_started }
+      mailpit: { condition: service_started }
+      identity-svc: { condition: service_healthy }
+    restart: unless-stopped
+
+  django-admin:
+    build:
+      context: ./services/django-admin
+      dockerfile: Dockerfile
+    environment:
+      DJANGO_SETTINGS_MODULE: conf_admin.settings
+      DATABASE_URL: postgres://django_reader:${SVC_DB_PASSWORD:?run `make secrets`}@postgres:5432/confhub?sslmode=disable
+      REDIS_URL: redis://redis:6379/0
+      SERVICE_TOKEN_SECRET: ${SERVICE_TOKEN_SECRET:?run `make secrets`}
+      APPLICATION_SVC_URL: http://application-svc:8083
+      IDENTITY_SVC_URL: http://identity-svc:8081
+      BASE_URL: http://localhost:8080
+      ALLOWED_HOSTS: localhost,127.0.0.1
+      SECRET_KEY: ${DJANGO_SECRET_KEY:?run `make secrets`}
+      ADMIN_AUTH_FILE: /run/admin-auth/credentials.enc
+      ADMIN_AUTH_KEY_FILE: /run/admin-auth/key
+      SESSION_COOKIE_SECURE: "false"
+    group_add: ["0"]
+    volumes:
+      - ./secrets/admin-auth:/run/admin-auth:rw
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      identity-svc: { condition: service_started }
+      application-svc: { condition: service_started }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8000/healthz > /dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.25-alpine
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/api.conf:/etc/nginx/api.conf:ro
+    ports:
+      - "8080:80"
+    depends_on:
+      - identity-svc
+      - conference-svc
+      - application-svc
+      - engagement-svc
+      - django-admin
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  natsdata:
+  miniodata:
+  esdata:

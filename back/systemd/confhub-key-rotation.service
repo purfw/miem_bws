@@ -1,0 +1,9 @@
+[Unit]
+Description=Rotate ConfHub JWT and encrypted join-link keys
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/srv/confhub/back/scripts/rotate-keys.sh
+Nice=10

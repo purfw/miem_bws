@@ -1,0 +1,35 @@
+{% extends 'console/section.html' %}
+{% block description %}Проверьте организацию и документы заявителя перед выдачей полномочий организатора.{% endblock %}
+{% block section_content %}
+  <div class="records">
+    {% for item in verifications %}
+      <article class="panel record" aria-labelledby="verification-{{ item.id }}">
+        <h2 id="verification-{{ item.id }}">{{ item.organization }}</h2>
+        <p>{{ item.user_name }} · {{ item.user_email }}</p>
+        <dl class="record-facts">
+          <div><dt>Способ подтверждения</dt><dd>{{ item.method }}</dd></div>
+          <div><dt>Пользователь</dt><dd>{{ item.user_id }}</dd></div>
+          <div><dt>Документы</dt><dd>
+            {% for doc in item.documents %}
+              {% if can_moderate %}<a href="{% url 'verification_document' doc.id %}?page={{ page }}">{{ doc.name }}</a>{% else %}{{ doc.name }}{% endif %}{% if not forloop.last %}<br>{% endif %}
+            {% empty %}Документы не приложены{% endfor %}
+          </dd></div>
+        </dl>
+        {% if can_moderate %}
+          <div class="record-actions">
+            <form method="post" action="{% url 'moderate_verification' item.id 'approved' %}">
+              {% include 'console/action_context.html' %}<button>Одобрить</button>
+            </form>
+            <form class="decision-form" method="post" action="{% url 'moderate_verification' item.id 'rejected' %}">
+              {% include 'console/action_context.html' %}
+              <label for="reason-{{ item.id }}">Причина отказа<input id="reason-{{ item.id }}" name="reason" required></label>
+              <button class="danger">Отклонить</button>
+            </form>
+          </div>
+        {% endif %}
+      </article>
+    {% empty %}
+      {% if not errors %}<div class="panel empty-state"><h2>Новых заявок нет</h2><p>Заявки на полномочия появятся здесь после обращения организатора.</p></div>{% endif %}
+    {% endfor %}
+  </div>
+{% endblock %}

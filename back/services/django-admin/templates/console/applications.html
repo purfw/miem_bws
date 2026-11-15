@@ -1,0 +1,51 @@
+{% extends 'console/section.html' %}
+{% block description %}Рассматривайте заявки на доклады и возвращайте автору понятные комментарии по решению.{% endblock %}
+{% block section_content %}
+  <section class="panel filter" aria-label="Фильтр заявок">
+    <form method="get" action="{% url 'applications' %}">
+      <fieldset><legend>Статусы заявок</legend><div class="choices">
+        {% for option in status_options %}
+          <label><input type="checkbox" name="status" value="{{ option.value }}"{% if option.selected %} checked{% endif %}>{{ option.label }}</label>
+        {% endfor %}
+      </div></fieldset>
+      <div class="actions"><button>Показать</button><a class="button secondary" href="{% url 'applications' %}">Все активные</a></div>
+    </form>
+  </section>
+  <div class="records">
+    {% for item in applications %}
+      <article class="panel record" aria-labelledby="application-{{ item.id }}">
+        <h2 id="application-{{ item.id }}">{{ item.title }}</h2>
+        <p>{{ item.conference_title }}</p>
+        <dl class="record-facts">
+          <div><dt>Автор</dt><dd>{{ item.user_name }}<br>{{ item.user_email }}</dd></div>
+          <div><dt>Статус</dt><dd><span class="badge">{{ item.status_label }}</span></dd></div>
+        </dl>
+        {% if can_moderate %}
+          <div class="record-actions">
+            {% if item.status == 'submitted' %}
+              <form method="post" action="{% url 'moderate_application' item.id 'under_review' %}">
+                {% include 'console/action_context.html' %}<button>Взять на проверку</button>
+              </form>
+            {% else %}
+              <form method="post" action="{% url 'moderate_application' item.id 'accepted' %}">
+                {% include 'console/action_context.html' %}<button>Принять</button>
+              </form>
+              <form class="decision-form" method="post" action="{% url 'moderate_application' item.id 'revision_requested' %}">
+                {% include 'console/action_context.html' %}
+                <label for="revision-{{ item.id }}">Что исправить<input id="revision-{{ item.id }}" name="comment" required></label>
+                <button class="secondary">На доработку</button>
+              </form>
+              <form class="decision-form" method="post" action="{% url 'moderate_application' item.id 'rejected' %}">
+                {% include 'console/action_context.html' %}
+                <label for="rejection-{{ item.id }}">Комментарий к отказу<input id="rejection-{{ item.id }}" name="comment"></label>
+                <button class="danger">Отклонить</button>
+              </form>
+            {% endif %}
+          </div>
+        {% endif %}
+      </article>
+    {% empty %}
+      {% if not errors %}<div class="panel empty-state"><h2>Заявок с выбранными статусами нет</h2><p>Измените фильтр или вернитесь к списку позже.</p></div>{% endif %}
+    {% endfor %}
+  </div>
+{% endblock %}

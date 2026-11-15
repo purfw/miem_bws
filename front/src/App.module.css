@@ -1,0 +1,9 @@
+.main {
+  flex-grow: 1;
+}
+
+.container {
+  max-width: var(--container-max);
+  margin: 0 auto;
+  padding: 0 var(--space-5);
+}

@@ -1,0 +1,429 @@
+services:
+  postgres:
+    networks:
+      data:
+        ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.30.51
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      SVC_DB_PASSWORD: ${SVC_DB_PASSWORD:?SVC_DB_PASSWORD is required}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/postgres-init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    networks:
+      data:
+        ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.30.71
+    image: redis:7-alpine
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis-state:
+    networks:
+      data:
+        ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.30.72
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redisstatedata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  jaeger:
+    networks:
+      app:
+        ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.20.40
+    image: jaegertracing/jaeger:2.21.0
+    user: "10001:10001"
+    command: ["--config", "/etc/jaeger/config.yml"]
+    volumes:
+      - ./observability/jaeger.yml:/etc/jaeger/config.yml:ro
+      - jaegerdata:/tmp/jaeger
+    ports:
+      - "127.0.0.1:${JAEGER_UI_PORT:-16686}:16686"
+    restart: unless-stopped
+
+  nats:
+    networks:
+      broker:
+        ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.40.81
+    image: nats:2.10-alpine
+    command: ["-js", "-sd", "/data", "-m", "8222"]
+    volumes:
+      - natsdata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8222/healthz > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  minio:
+    networks:
+      storage:
+        ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.50.73
+    image: minio/minio:latest
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/minio/health/ready > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  elasticsearch:
+    networks:
+      data:
+        ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.30.74
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.19.0
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      node.store.allow_mmap: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS 'http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow' > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  identity-svc:
+    networks:
+      app:
+        ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.20.21
+      data:
+        ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.30.21
+      broker:
+        ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.40.21
+    image: ${CI_REGISTRY_IMAGE}/identity-svc:${IMAGE_TAG}
+    environment:
+      PORT: 8081
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      DATABASE_URL: postgres://identity_svc:${SVC_DB_PASSWORD:?SVC_DB_PASSWORD is required}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      REDIS_URL: redis://redis-state:6379/0
+      MTLS_CA_FILE: /run/mtls-ca.pem
+      MTLS_CERT_FILE: /run/mtls/cert.pem
+      MTLS_KEY_FILE: /run/mtls/key.pem
+      NATS_URL: nats://nats:4222
+      JWT_PRIVATE_KEY_PATH: /run/secrets/jwt_private
+      JWT_PUBLIC_KEY_PATH: /run/secrets/jwt_public
+      JWT_ISSUER: ${JWT_ISSUER:?JWT_ISSUER is required}
+      ACCESS_TOKEN_TTL: ${ACCESS_TOKEN_TTL:?ACCESS_TOKEN_TTL is required}
+      REFRESH_TOKEN_TTL: ${REFRESH_TOKEN_TTL:?REFRESH_TOKEN_TTL is required}
+      SERVICE_TOKEN_SECRET: ${SERVICE_TOKEN_SECRET:?SERVICE_TOKEN_SECRET is required}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      COOKIE_SECURE: "true"
+      BASE_URL: ${BASE_URL:?BASE_URL is required}
+      LOGIN_RATE_LIMIT: "10"
+      LOGIN_RATE_WINDOW: 1m
+      PWNED_PASSWORDS_URL: ${PWNED_PASSWORDS_URL:-https://api.pwnedpasswords.com}
+      PWNED_PASSWORDS_TIMEOUT: ${PWNED_PASSWORDS_TIMEOUT:-5s}
+      ORCID_CLIENT_ID: ${ORCID_CLIENT_ID:-}
+      ORCID_CLIENT_SECRET: ${ORCID_CLIENT_SECRET:-}
+    volumes:
+      - ${JWT_PRIVATE_KEY_FILE:?JWT_PRIVATE_KEY_FILE is required}:/run/secrets/jwt_private:ro
+      - ${JWT_PUBLIC_KEY_FILE:?JWT_PUBLIC_KEY_FILE is required}:/run/secrets/jwt_public:ro
+      - ./secrets/mtls/ca.pem:/run/mtls-ca.pem:ro
+      - ./secrets/mtls/identity-svc:/run/mtls:ro
+    group_add:
+      - "0"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis-state: { condition: service_healthy }
+      nats: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8081/readyz > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  conference-svc:
+    networks:
+      app:
+        ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.20.22
+      data:
+        ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.30.22
+      broker:
+        ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.40.22
+    image: ${CI_REGISTRY_IMAGE}/conference-svc:${IMAGE_TAG}
+    environment:
+      PORT: 8082
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      DATABASE_URL: postgres://conference_svc:${SVC_DB_PASSWORD:?SVC_DB_PASSWORD is required}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      REDIS_URL: redis://redis-state:6379/0
+      CACHE_REDIS_URL: redis://redis:6379/0
+      IDENTITY_SVC_URL: https://identity-svc:8443
+      MTLS_CA_FILE: /run/mtls-ca.pem
+      MTLS_CERT_FILE: /run/mtls/cert.pem
+      MTLS_KEY_FILE: /run/mtls/key.pem
+      NATS_URL: nats://nats:4222
+      JWT_PUBLIC_KEY_PATH: /run/secrets/jwt_public
+      JWT_ISSUER: ${JWT_ISSUER:?JWT_ISSUER is required}
+      SERVICE_TOKEN_SECRET: ${SERVICE_TOKEN_SECRET:?SERVICE_TOKEN_SECRET is required}
+      JOIN_URL_ENCRYPTION_KEY: ${JOIN_URL_ENCRYPTION_KEY:?JOIN_URL_ENCRYPTION_KEY is required}
+      JOIN_URL_ENCRYPTION_KEYS: ${JOIN_URL_ENCRYPTION_KEYS:-}
+      JOIN_URL_ACTIVE_KEY_VERSION: ${JOIN_URL_ACTIVE_KEY_VERSION:-1}
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      ELASTICSEARCH_INDEX: confhub-conferences-v1
+      SEARCH_RATE_LIMIT: "200"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ${JWT_PUBLIC_KEY_FILE:?JWT_PUBLIC_KEY_FILE is required}:/run/secrets/jwt_public:ro
+      - ./secrets/mtls/ca.pem:/run/mtls-ca.pem:ro
+      - ./secrets/mtls/conference-svc:/run/mtls:ro
+    group_add: ["0"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      redis-state: { condition: service_healthy }
+      nats: { condition: service_healthy }
+      elasticsearch: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8082/readyz > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  application-svc:
+    networks:
+      app:
+        ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.20.23
+      data:
+        ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.30.23
+      broker:
+        ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.40.23
+      storage:
+        ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.50.23
+    image: ${CI_REGISTRY_IMAGE}/application-svc:${IMAGE_TAG}
+    environment:
+      PORT: 8083
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      DATABASE_URL: postgres://application_svc:${SVC_DB_PASSWORD:?SVC_DB_PASSWORD is required}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      REDIS_URL: redis://redis-state:6379/0
+      MTLS_CA_FILE: /run/mtls-ca.pem
+      MTLS_CERT_FILE: /run/mtls/cert.pem
+      MTLS_KEY_FILE: /run/mtls/key.pem
+      NATS_URL: nats://nats:4222
+      JWT_PUBLIC_KEY_PATH: /run/secrets/jwt_public
+      JWT_ISSUER: ${JWT_ISSUER:?JWT_ISSUER is required}
+      SERVICE_TOKEN_SECRET: ${SERVICE_TOKEN_SECRET:?SERVICE_TOKEN_SECRET is required}
+      CONFERENCE_SVC_URL: https://conference-svc:8443
+      IDENTITY_SVC_URL: https://identity-svc:8443
+      BASE_URL: ${BASE_URL:?BASE_URL is required}
+      PDF_FONT_PATH: /usr/share/fonts/dejavu/DejaVuSans.ttf
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+      MINIO_BUCKET: ${MINIO_BUCKET:?MINIO_BUCKET is required}
+      MINIO_USE_SSL: "false"
+      MAX_FILE_SIZE_BYTES: ${MAX_FILE_SIZE_BYTES:?MAX_FILE_SIZE_BYTES is required}
+      ORCID_PUBLICATION_THRESHOLD: ${ORCID_PUBLICATION_THRESHOLD:-5}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ${JWT_PUBLIC_KEY_FILE:?JWT_PUBLIC_KEY_FILE is required}:/run/secrets/jwt_public:ro
+      - ./secrets/mtls/ca.pem:/run/mtls-ca.pem:ro
+      - ./secrets/mtls/application-svc:/run/mtls:ro
+    group_add: ["0"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis-state: { condition: service_healthy }
+      nats: { condition: service_healthy }
+      minio: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8083/readyz > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  engagement-svc:
+    networks:
+      app:
+        ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.20.24
+      data:
+        ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.30.24
+      broker:
+        ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.40.24
+    image: ${CI_REGISTRY_IMAGE}/engagement-svc:${IMAGE_TAG}
+    environment:
+      PORT: 8084
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      DATABASE_URL: postgres://engagement_svc:${SVC_DB_PASSWORD:?SVC_DB_PASSWORD is required}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      REDIS_URL: redis://redis-state:6379/0
+      MTLS_CA_FILE: /run/mtls-ca.pem
+      MTLS_CERT_FILE: /run/mtls/cert.pem
+      MTLS_KEY_FILE: /run/mtls/key.pem
+      NATS_URL: nats://nats:4222
+      JWT_PUBLIC_KEY_PATH: /run/secrets/jwt_public
+      JWT_ISSUER: ${JWT_ISSUER:?JWT_ISSUER is required}
+      SMTP_HOST: ${SMTP_HOST:?SMTP_HOST is required}
+      SMTP_PORT: ${SMTP_PORT:?SMTP_PORT is required}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:?SMTP_FROM is required}
+      SMTP_TLS_MODE: ${SMTP_TLS_MODE:-}
+      SUPPORT_EMAIL: ${SUPPORT_EMAIL:?SUPPORT_EMAIL is required}
+      BASE_URL: ${BASE_URL:?BASE_URL is required}
+      IDENTITY_SVC_URL: https://identity-svc:8443
+      CONFERENCE_SVC_URL: https://conference-svc:8443
+      SERVICE_TOKEN_SECRET: ${SERVICE_TOKEN_SECRET:?SERVICE_TOKEN_SECRET is required}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ${JWT_PUBLIC_KEY_FILE:?JWT_PUBLIC_KEY_FILE is required}:/run/secrets/jwt_public:ro
+      - ./secrets/mtls/ca.pem:/run/mtls-ca.pem:ro
+      - ./secrets/mtls/engagement-svc:/run/mtls:ro
+    group_add: ["0"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis-state: { condition: service_healthy }
+      nats: { condition: service_healthy }
+      identity-svc: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8084/readyz > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  django-admin:
+    networks:
+      app:
+        ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.20.25
+      data:
+        ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.30.25
+    image: ${CI_REGISTRY_IMAGE}/django-admin:${IMAGE_TAG}
+    environment:
+      DJANGO_SETTINGS_MODULE: conf_admin.settings
+      DATABASE_URL: postgres://django_reader:${SVC_DB_PASSWORD:?SVC_DB_PASSWORD is required}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      REDIS_URL: redis://redis-state:6379/0
+      MTLS_CA_FILE: /run/mtls-ca.pem
+      MTLS_CERT_FILE: /run/mtls/cert.pem
+      MTLS_KEY_FILE: /run/mtls/key.pem
+      SERVICE_TOKEN_SECRET: ${SERVICE_TOKEN_SECRET:?SERVICE_TOKEN_SECRET is required}
+      APPLICATION_SVC_URL: https://application-svc:8443
+      IDENTITY_SVC_URL: https://identity-svc:8443
+      CONFERENCE_SVC_URL: https://conference-svc:8443
+      ENGAGEMENT_SVC_URL: https://engagement-svc:8443
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      BASE_URL: ${BASE_URL:?BASE_URL is required}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:?ALLOWED_HOSTS is required},localhost,127.0.0.1
+      SECRET_KEY: ${DJANGO_SECRET_KEY:?DJANGO_SECRET_KEY is required}
+      ADMIN_AUTH_FILE: /run/admin-auth/credentials.enc
+      ADMIN_AUTH_KEY_FILE: /run/admin-auth/key
+      SESSION_COOKIE_SECURE: ${ADMIN_COOKIE_SECURE:-false}
+    group_add: ["0"]
+    volumes:
+      - ./secrets/admin-auth:/run/admin-auth:rw
+      - ./secrets/mtls/ca.pem:/run/mtls-ca.pem:ro
+      - ./secrets/mtls/operations:/run/mtls:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis-state: { condition: service_healthy }
+      identity-svc: { condition: service_healthy }
+      conference-svc: { condition: service_healthy }
+      application-svc: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8000/healthz > /dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  frontend:
+    networks:
+      edge:
+        ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.10.20
+    image: ${CI_REGISTRY_IMAGE}/front:${IMAGE_TAG}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/ > /dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  nginx:
+    networks:
+      edge:
+        ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.10.10
+      app:
+        ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.20.10
+      storage:
+        ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.50.10
+    image: nginx:1.27-alpine
+    volumes:
+      - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      - ${TLS_CERTS_DIR:?TLS_CERTS_DIR is required}:/etc/nginx/certs:ro
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      identity-svc: { condition: service_healthy }
+      conference-svc: { condition: service_healthy }
+      application-svc: { condition: service_healthy }
+      engagement-svc: { condition: service_healthy }
+      django-admin: { condition: service_healthy }
+      frontend: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ > /dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  natsdata:
+  miniodata:
+  esdata:
+  redisstatedata:
+  jaegerdata:
+
+# Сегменты сети. Адреса статические: на них опираются правила межсетевого
+# экрана (firewall/policy.conf, scripts/firewall.sh). Описание — docs/NETWORK.md.
+networks:
+  edge:      # входной контур: шлюз и статика фронтенда
+    driver_opts: { com.docker.network.bridge.name: "${CONFHUB_BR_PREFIX:-chb}-edge" }
+    ipam: { config: [{ subnet: "${CONFHUB_NET_PREFIX:-172.28}.10.0/24" }] }
+  app:       # прикладные сервисы, трассировка; единственный сегмент с выходом наружу
+    driver_opts: { com.docker.network.bridge.name: "${CONFHUB_BR_PREFIX:-chb}-app" }
+    ipam: { config: [{ subnet: "${CONFHUB_NET_PREFIX:-172.28}.20.0/24" }] }
+  data:      # PostgreSQL, Redis, Elasticsearch; без маршрута во внешние сети
+    internal: true
+    driver_opts: { com.docker.network.bridge.name: "${CONFHUB_BR_PREFIX:-chb}-data" }
+    ipam: { config: [{ subnet: "${CONFHUB_NET_PREFIX:-172.28}.30.0/24" }] }
+  broker:    # NATS JetStream; без маршрута во внешние сети
+    internal: true
+    driver_opts: { com.docker.network.bridge.name: "${CONFHUB_BR_PREFIX:-chb}-broker" }
+    ipam: { config: [{ subnet: "${CONFHUB_NET_PREFIX:-172.28}.40.0/24" }] }
+  storage:   # объектное хранилище MinIO; без маршрута во внешние сети
+    internal: true
+    driver_opts: { com.docker.network.bridge.name: "${CONFHUB_BR_PREFIX:-chb}-storage" }
+    ipam: { config: [{ subnet: "${CONFHUB_NET_PREFIX:-172.28}.50.0/24" }] }

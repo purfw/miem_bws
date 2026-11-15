@@ -1,0 +1,93 @@
+.docs {
+  min-width: 0;
+  color: var(--color-text);
+  background: var(--color-surface);
+}
+
+.viewer {
+  margin-top: var(--space-5);
+  overflow-wrap: anywhere;
+}
+
+.viewer :global(.swagger-ui) {
+  min-width: 0;
+}
+
+.viewer :global(.swagger-ui .wrapper) {
+  padding: 0;
+}
+
+.viewer :global(.swagger-ui .opblock .opblock-summary-path) {
+  overflow-wrap: anywhere;
+}
+
+.viewer :global(.swagger-ui .info .title small),
+.viewer :global(.swagger-ui .opblock .opblock-summary-method) {
+  background: var(--color-text-light);
+  color: var(--color-surface);
+}
+
+.viewer :global(.swagger-ui .info .title small pre) {
+  color: var(--color-surface);
+}
+
+.viewer :global(.swagger-ui .info .url),
+.viewer :global(.swagger-ui a),
+.viewer :global(.swagger-ui .btn.authorize) {
+  color: var(--color-accent-text);
+}
+
+.viewer :global(.swagger-ui .parameter__in) {
+  color: var(--color-text-light);
+}
+
+.viewer :global(.swagger-ui .highlight-code pre) {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.viewer :global(.swagger-ui .highlight-code pre:focus-visible) {
+  outline: var(--space-1) solid var(--color-accent);
+  outline-offset: var(--space-1);
+}
+
+.viewer :global(.swagger-ui .btn.authorize) {
+  border-color: var(--color-accent-text);
+}
+
+.viewer :global(.swagger-ui .btn.authorize svg) {
+  fill: var(--color-accent-text);
+}
+
+.viewer :global(.swagger-ui .opblock) {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-card);
+}
+
+.viewer :global(.swagger-ui .opblock .opblock-summary) {
+  border-color: var(--color-border);
+}
+
+.viewer :global(.swagger-ui .btn),
+.viewer :global(.swagger-ui select) {
+  min-height: var(--space-7);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-family);
+}
+
+.viewer :global(.swagger-ui button:focus-visible),
+.viewer :global(.swagger-ui input:focus-visible),
+.viewer :global(.swagger-ui select:focus-visible),
+.viewer :global(.swagger-ui a:focus-visible) {
+  outline: var(--space-1) solid var(--color-accent-text);
+  outline-offset: var(--space-1);
+}
+
+@media (max-width: 767px) {
+  .viewer :global(.swagger-ui .opblock .opblock-summary-path) {
+    font-size: var(--space-3);
+  }
+}

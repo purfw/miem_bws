@@ -1,0 +1,14 @@
+[Unit]
+Description=Rotate ConfHub cryptographic keys every quarter
+
+[Timer]
+OnCalendar=*-01-01 04:00:00 Europe/Moscow
+OnCalendar=*-04-01 04:00:00 Europe/Moscow
+OnCalendar=*-07-01 04:00:00 Europe/Moscow
+OnCalendar=*-10-01 04:00:00 Europe/Moscow
+RandomizedDelaySec=20m
+Persistent=false
+Unit=confhub-key-rotation.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,11 @@
+[Unit]
+Description=Renew ConfHub service certificates and authentication monthly
+
+[Timer]
+OnCalendar=*-*-08 04:00:00 Europe/Moscow
+RandomizedDelaySec=20m
+Persistent=false
+Unit=confhub-service-keys.service
+
+[Install]
+WantedBy=timers.target

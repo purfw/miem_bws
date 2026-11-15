@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+{% block title %}Пользователи · ConfHub{% endblock %}
+{% block content %}
+<h1>Пользователи</h1>
+<p>Найдите пользователя по email или имени, выберите роль либо измените статус доступа.</p>
+<p class="muted">Роль на платформе определяет доступ к мероприятиям и функциям организатора. Для работы в админке выдайте отдельный доступ в разделе «Команда админки».</p>
+{% if notice %}<p class="notice" role="status">Изменения сохранены. Пользователь получит новые права после повторного входа.</p>{% endif %}
+{% for error in errors %}<p class="error" role="alert">{{ error }}</p>{% endfor %}
+<section><form class="search" method="get"><label for="user-search">Email или имя<input id="user-search" name="q" value="{{ query }}" maxlength="255" placeholder="user@example.com" type="search"></label><button>Найти</button>{% if query %}<a class="button secondary" href="{% url 'users' %}">Сбросить</a>{% endif %}</form></section>
+<div class="account-grid">
+{% for row in users %}<article class="account">
+  <h2>{{ row.user.first_name }} {{ row.user.last_name }}</h2><p>{{ row.user.email }}</p>
+  <p><span class="badge{% if row.user.is_active %} active{% endif %}">{% if row.user.is_active %}Активен{% else %}Заблокирован{% endif %}</span> <span class="badge">{% if row.user.email_verified %}Email подтверждён{% else %}Email не подтверждён{% endif %}</span></p>
+  <p>Текущая роль: <strong>{{ row.role_label }}</strong>.</p>
+  <form class="form-grid" method="post" action="{% url 'change_user' %}">{% csrf_token %}
+    <input type="hidden" name="action" value="role"><input type="hidden" name="q" value="{{ query }}"><input type="hidden" name="page" value="{{ page }}">{{ row.role_form.user_id }}
+    <label>Роль на платформе{{ row.role_form.role }}</label>
+    <div><button class="secondary">Сохранить роль</button></div>
+  </form>
+  <div class="actions"><form method="post" action="{% url 'change_user' %}">{% csrf_token %}<input type="hidden" name="q" value="{{ query }}"><input type="hidden" name="page" value="{{ page }}"><input type="hidden" name="user_id" value="{{ row.user.id }}">{% if row.user.is_active %}<button class="danger" name="action" value="disable">Заблокировать</button>{% else %}<button name="action" value="enable">Разблокировать</button>{% endif %}</form>
+    {% if can_manage_admins %}<a class="button secondary" href="{% url 'team' %}?{{ row.invite_query }}">Пригласить в модераторы</a>{% endif %}
+  </div>
+</article>{% empty %}{% if not errors %}<section><p>Пользователи не найдены. Проверьте email или измените запрос.</p></section>{% endif %}{% endfor %}
+</div>
+<nav class="actions pagination" aria-label="Страницы пользователей">{% if previous_query %}<a class="button secondary" href="?{{ previous_query }}">Предыдущая</a>{% endif %}<span>Страница {{ page }}</span>{% if next_query %}<a class="button secondary" href="?{{ next_query }}">Следующая</a>{% endif %}</nav>
+{% endblock %}

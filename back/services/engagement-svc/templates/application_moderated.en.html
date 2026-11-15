@@ -1,0 +1,7 @@
+<!doctype html>
+<html lang="en"><body style="font-family:Arial,sans-serif;line-height:1.5">
+<h2>Application decision</h2>
+<p>Hello, {{.UserName}}!</p>
+<p>Your application for <strong>{{.ConferenceTitle}}</strong> is now <strong>{{.NewStatus}}</strong>.</p>
+{{if .Comment}}<p>Moderator comment:</p><blockquote>{{.Comment}}</blockquote>{{end}}
+</body></html>

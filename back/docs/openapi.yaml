@@ -1,0 +1,1279 @@
+openapi: 3.0.3
+info:
+  title: ConfHub API — публичный контур
+  version: "1.2.0"
+  description: |
+    Частичная схема публичного API по реализации в back/services.
+    Она не генерируется из обработчиков и не покрывает все текущие маршруты.
+    Список маршрутов работающей сборки формируется из роутеров Go-сервисов:
+    /api/v1/openapi/identity.json, /api/v1/openapi/conference.json,
+    /api/v1/openapi/application.json, /api/v1/openapi/engagement.json.
+    Swagger UI текущих схем находится по /docs. Все текущие маршруты
+    зарегистрированы в исходниках, включая multipart и способы авторизации.
+    Этот YAML — старый справочный снимок, а не источник текущего API.
+    Результаты проверки и ограничения приведены в docs/PROJECT_REVIEW_2026-10-05.md.
+
+    Схема покрывает публичные ручки, которые нужны фронту для главного
+    экрана участника. Internal-контур (`/internal/*`, X-Service-Token) и
+    административный контур сюда намеренно не входят: шлюз блокирует
+    префикс `/internal/` из внешней сети.
+
+servers:
+  - url: http://localhost:8080/api/v1
+    description: локальная сборка через nginx
+  - url: https://91.132.58.253/api/v1
+    description: прод
+
+# Публичный контур по умолчанию не требует токена; защищённые операции
+# переопределяют это своим `security`.
+security: []
+
+tags:
+  - name: home
+    description: Главный экран участника
+  - name: conferences
+    description: Каталог конференций
+  - name: conference-page
+    description: |
+      Вкладки страницы конференции. Каждая вкладка — своя ручка: переключение
+      не должно перезапрашивать карточку целиком, а «Доклады» и «Участники»
+      ещё и постраничные.
+  - name: favorites
+    description: Избранные конференции пользователя
+  - name: auth
+    description: Аутентификация
+  - name: applications
+    description: Заявки на участие
+  - name: support
+    description: Обращения в поддержку
+
+paths:
+  /home:
+    get:
+      operationId: getHome
+      tags: [home]
+      summary: Hero-конференция и статистика платформы
+      description: |
+        Отдаётся отдельно от списка: hero и статистика меняются раз в минуты
+        и кешируются иначе, чем страница выдачи, а на `page=2` они не нужны.
+        Ответ помечен `Cache-Control: public, max-age=60`.
+
+        Если каталог пуст, `heroConference` в ответе отсутствует — это не
+        ошибка, главная должна отрисоваться и без конференции.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [heroInfo]
+                properties:
+                  heroConference:
+                    allOf: [{ $ref: "#/components/schemas/ConferenceCard" }]
+                    description: Отсутствует в ответе, пока каталог пуст.
+                  heroInfo:
+                    $ref: "#/components/schemas/HeroInfo"
+
+  /conferences:
+    get:
+      operationId: listConferences
+      tags: [conferences]
+      summary: Список конференций с фильтрами и фасетами
+      description: |
+        Постраничная выдача каталога. Черновики (`status=draft`) не
+        возвращаются ни при каком наборе параметров.
+
+        Поисковая выдача считается по Postgres FTS (`tsvector` russian +
+        english) с дополнением по триграммам на `title`, поэтому опечатка в
+        одну-две буквы всё ещё находит запись.
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: per_page
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: searchText
+          in: query
+          description: Полнотекстовый запрос. `q` принимается как алиас.
+          schema: { type: string }
+        - name: tab
+          in: query
+          description: |
+            Вкладка каталога. Маппинг на статусы:
+            `active` → registration_open, in_progress;
+            `upcoming` → registration_closed;
+            `past` → completed, archived.
+          schema:
+            type: string
+            enum: [active, upcoming, past]
+            default: active
+        - name: status
+          in: query
+          description: |
+            Явный список статусов через запятую. Имеет приоритет над `tab`.
+            `draft` отклоняется с 422.
+          schema: { type: string }
+          example: registration_open,in_progress
+        - name: format
+          in: query
+          description: |
+            Через запятую. Принимаются `offline|hybrid|online`, а также
+            написания `in_person` и `in-person` — оба нормализуются в
+            `offline` (очно).
+          schema: { type: string }
+          example: offline,hybrid
+        - name: city
+          in: query
+          description: Город или несколько через запятую.
+          schema: { type: string }
+        - name: topics
+          in: query
+          description: Тематики через запятую; совпадение по любой из них.
+          schema: { type: string }
+        - name: from_date
+          in: query
+          description: Дата начала >= указанной.
+          schema: { type: string, format: date }
+        - name: to_date
+          in: query
+          description: Дата начала <= указанной.
+          schema: { type: string, format: date }
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [start_date, -start_date, created_at, -created_at, title]
+            default: -created_at
+        - name: include
+          in: query
+          description: |
+            `hero` добавляет в ответ `heroConference` и `heroInfo`. Имеет
+            смысл только на первой странице; на последующих это лишний
+            трафик — используйте `/home` или запрашивайте один раз.
+          schema: { type: string }
+          example: hero
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, filters, pagination]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/ConferenceCard" }
+                  filters:
+                    type: array
+                    items: { $ref: "#/components/schemas/Filter" }
+                  pagination:
+                    $ref: "#/components/schemas/Pagination"
+                  heroConference:
+                    $ref: "#/components/schemas/ConferenceCard"
+                  heroInfo:
+                    $ref: "#/components/schemas/HeroInfo"
+        "422":
+          $ref: "#/components/responses/Validation"
+
+  /conferences/search:
+    get:
+      operationId: searchConferences
+      tags: [conferences]
+      summary: Алиас на GET /conferences
+      description: Совпадает с `/conferences` по параметрам и ответу.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /conferences/{idOrSlug}:
+    get:
+      operationId: getConference
+      tags: [conferences]
+      summary: Детали конференции
+      description: |
+        Принимает и UUID, и slug. Черновик отдаётся как 404: он виден только
+        через internal-контур.
+      parameters:
+        - name: idOrSlug
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConferenceDetail" }
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /conferences/{idOrSlug}/program:
+    get:
+      operationId: getConferenceProgram
+      tags: [conference-page]
+      summary: Вкладка «Программа»
+      description: |
+        Расписание, сгруппированное по дням. Группировка сделана на бэке:
+        порядок дней и слотов внутри дня задаётся сортировкой в SQL, и
+        повторять её на клиенте — лишний источник расхождений.
+
+        `sections` отдаётся здесь же: вкладка фильтрует программу по секциям,
+        и отдельный запрос за справочником не нужен.
+      parameters:
+        - $ref: "#/components/parameters/IdOrSlug"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [days, sections]
+                properties:
+                  days:
+                    type: array
+                    items: { $ref: "#/components/schemas/ProgramDay" }
+                  sections:
+                    type: array
+                    items: { $ref: "#/components/schemas/Section" }
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /conferences/{idOrSlug}/talks:
+    get:
+      operationId: listConferenceTalks
+      tags: [conference-page]
+      summary: Вкладка «Доклады»
+      description: |
+        Те же слоты программы, но плоским постраничным списком с поиском и
+        отбором по секции и дню. Доклад и слот программы — одна сущность:
+        `talks_count` секции считает ровно эти строки.
+      parameters:
+        - $ref: "#/components/parameters/IdOrSlug"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: section_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: day
+          in: query
+          description: Один день программы.
+          schema: { type: string, format: date }
+        - name: searchText
+          in: query
+          description: |
+            Поиск по названию доклада и имени докладчика (ILIKE, без учёта
+            регистра). `q` принимается как алиас.
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, pagination]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Talk" }
+                  pagination:
+                    $ref: "#/components/schemas/Pagination"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Validation"
+
+  /conferences/{conferenceId}/participants:
+    get:
+      operationId: listConferenceParticipants
+      tags: [conference-page]
+      summary: Вкладка «Участники»
+      description: |
+        Список одобренных участников. Ручку обслуживает Application Svc —
+        заявки лежат в его схеме, — поэтому в пути принимается **только
+        UUID**, slug здесь не работает: идентификатор берётся из
+        `GET /conferences/{idOrSlug}`, который на странице загружается первым.
+
+        Наружу уходят имя, форма участия, секция и тема доклада. Почты и
+        идентификатора пользователя в ответе нет, заявки в состояниях
+        `submitted`, `under_review` и `rejected` не показываются вовсе:
+        поданная, но не одобренная заявка — ещё не участие.
+      parameters:
+        - name: conferenceId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, pagination]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Participant" }
+                  pagination:
+                    $ref: "#/components/schemas/Pagination"
+        "422":
+          $ref: "#/components/responses/Validation"
+
+  /conferences/{idOrSlug}/organizers:
+    get:
+      operationId: listConferenceOrganizers
+      tags: [conference-page]
+      summary: Вкладка «Организаторы»
+      description: |
+        Оргкомитет и программный комитет раздельно — на макете это два блока
+        с разными подписями. В базе они лежат в одной таблице и различаются
+        полем `kind`.
+      parameters:
+        - $ref: "#/components/parameters/IdOrSlug"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OrganizersSection" }
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /conferences/{idOrSlug}/partners:
+    get:
+      operationId: listConferencePartners
+      tags: [conference-page]
+      summary: Вкладка «Партнёры»
+      parameters:
+        - $ref: "#/components/parameters/IdOrSlug"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Partner" }
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /conferences/{idOrSlug}/favorite:
+    put:
+      operationId: addFavorite
+      tags: [favorites]
+      summary: Добавить конференцию в избранное
+      description: |
+        Идемпотентно: повторное нажатие кнопки возвращает те же 204, а не
+        409. Черновик и несуществующая конференция — 404.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/IdOrSlug"
+      responses:
+        "204":
+          description: Добавлено; тело ответа отсутствует
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: removeFavorite
+      tags: [favorites]
+      summary: Убрать конференцию из избранного
+      description: "Идемпотентно: удаление отсутствующей записи тоже 204."
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/IdOrSlug"
+      responses:
+        "204":
+          description: Удалено; тело ответа отсутствует
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /favorites:
+    get:
+      operationId: listFavorites
+      tags: [favorites]
+      summary: Избранные конференции пользователя
+      description: |
+        Карточки в том же формате, что и в каталоге, в порядке добавления
+        (новые сверху). Черновики и отменённые записи в выдачу не попадают:
+        конференция могла измениться уже после добавления.
+
+        Ответ персональный и отдаётся с `Cache-Control: private, no-store`.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, pagination]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/ConferenceCard" }
+                  pagination:
+                    $ref: "#/components/schemas/Pagination"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /support/messages:
+    post:
+      operationId: createSupportMessage
+      tags: [support]
+      summary: Отправить обращение в поддержку
+      description: |
+        Токен не требуется: написать в поддержку должен и незалогиненный
+        пользователь. Обращение сначала пишется в базу и только потом
+        уходит письмом — недоступность SMTP не отменяет приём, поэтому
+        ответ 202, а не 201.
+
+        Ограничения: 5 принятых обращений с одного адреса в час (сверх
+        лимита шлюза) и не больше 64 КБ тела.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SupportMessageRequest" }
+      responses:
+        "202":
+          description: Обращение принято
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, status]
+                properties:
+                  id: { type: string, format: uuid }
+                  status: { type: string, enum: [accepted] }
+        "422":
+          $ref: "#/components/responses/Validation"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /auth/register:
+    post:
+      operationId: register
+      tags: [auth]
+      summary: Регистрация
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RegisterRequest" }
+      responses:
+        "201":
+          description: Создан
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RegisterResponse" }
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Validation"
+
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Вход
+      description: |
+        Refresh-токен возвращается в httpOnly-cookie с `Path=/api/v1/auth`.
+        Access-токен — Ed25519 JWT, TTL 15 минут.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: OK
+          headers:
+            Set-Cookie:
+              description: |
+                Ротируемая `refresh_token` cookie: HttpOnly, SameSite=Strict,
+                Path=/api/v1/auth; Secure включается в production.
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthSessionResponse" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/Validation"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /auth/refresh:
+    post:
+      operationId: refreshToken
+      tags: [auth]
+      summary: Обновление access-токена по cookie
+      description: |
+        При успехе старый refresh-токен инвалидируется и заменяется новым.
+        Роль пользователя повторно читается из базы и возвращается как в
+        access-токене, так и в объекте `user`.
+      security: [{ refreshCookie: [] }]
+      responses:
+        "200":
+          description: OK
+          headers:
+            Set-Cookie:
+              description: Новая ротированная `refresh_token` cookie.
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthSessionResponse" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Выход
+      description: Cookie необязательна; локальная cookie очищается в любом случае.
+      responses:
+        "204":
+          description: No Content
+          headers:
+            Set-Cookie:
+              description: Удаление `refresh_token` cookie через Max-Age=-1.
+              schema: { type: string }
+
+  /auth/forgot-password:
+    post:
+      operationId: forgotPassword
+      tags: [auth]
+      summary: Запрос ссылки для сброса пароля
+      description: |
+        Всегда возвращает одинаковый успешный ответ независимо от наличия
+        email в базе, чтобы не раскрывать зарегистрированные адреса.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ForgotPasswordRequest" }
+      responses:
+        "200":
+          description: Запрос принят; тело ответа отсутствует
+        "422":
+          $ref: "#/components/responses/Validation"
+
+  /auth/reset-password:
+    post:
+      operationId: resetPassword
+      tags: [auth]
+      summary: Установка нового пароля
+      description: |
+        После успешной смены пароля отзываются все refresh-сессии
+        пользователя.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ResetPasswordRequest" }
+      responses:
+        "200":
+          description: Пароль изменён; тело ответа отсутствует
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Validation"
+
+  /auth/verify:
+    get:
+      operationId: verifyEmail
+      tags: [auth]
+      summary: Подтверждение email
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204":
+          description: Email подтверждён; тело ответа отсутствует
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Validation"
+
+  /auth/me:
+    get:
+      operationId: getCurrentUser
+      tags: [auth]
+      summary: Текущий пользователь
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /conferences/{conferenceId}/applications:
+    post:
+      operationId: submitApplication
+      tags: [applications]
+      summary: Подать заявку на участие
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: conferenceId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [form, title]
+              properties:
+                form:
+                  type: string
+                  enum: [speaker, poster, listener]
+                title: { type: string }
+                abstract: { type: string, nullable: true }
+                section_id: { type: string, format: uuid, nullable: true }
+                keywords:
+                  type: array
+                  items: { type: string }
+      responses:
+        "201":
+          description: Заявка создана
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Application" }
+        "409":
+          description: Регистрация закрыта, дедлайн прошёл или заявка уже подана
+
+  /applications/my:
+    get:
+      operationId: listMyApplications
+      tags: [applications]
+      summary: Мои заявки
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Application" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    refreshCookie:
+      type: apiKey
+      in: cookie
+      name: refresh_token
+
+  parameters:
+    IdOrSlug:
+      name: idOrSlug
+      in: path
+      required: true
+      description: UUID или slug конференции.
+      schema: { type: string }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    PerPage:
+      name: per_page
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+
+  responses:
+    NotFound:
+      description: Не найдено
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    Validation:
+      description: Ошибка валидации
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    Unauthorized:
+      description: Не авторизован
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    Forbidden:
+      description: Доступ запрещён или учётная запись отключена
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    Conflict:
+      description: Конфликт с текущим состоянием ресурса
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    TooManyRequests:
+      description: Превышен лимит запросов
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+
+  schemas:
+    RegisterRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password, first_name, last_name]
+      properties:
+        email: { type: string, format: email, maxLength: 255 }
+        password: { type: string, minLength: 12 }
+        first_name: { type: string }
+        last_name: { type: string }
+        patronymic: { type: string, nullable: true }
+        affiliation: { type: string, nullable: true }
+
+    RegisterResponse:
+      type: object
+      required: [user_id]
+      properties:
+        user_id: { type: string, format: uuid }
+
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+
+    AuthSessionResponse:
+      type: object
+      required: [access_token, expires_at, user]
+      properties:
+        access_token:
+          type: string
+          description: Ed25519 JWT для передачи в заголовке Authorization.
+        expires_at:
+          type: string
+          format: date-time
+          description: Время истечения access-токена в UTC (RFC 3339).
+        user: { $ref: "#/components/schemas/User" }
+
+    ForgotPasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [email]
+      properties:
+        email: { type: string, format: email }
+
+    ResetPasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [token, new_password]
+      properties:
+        token: { type: string, format: uuid }
+        new_password: { type: string, minLength: 12 }
+
+    ConferenceCard:
+      type: object
+      description: |
+        Сниппет для выдачи и hero-блока. Умышленно уже полной сущности:
+        организаторы, секции и расписание приезжают только в деталях.
+      required:
+        - id
+        - slug
+        - title
+        - format
+        - status
+        - registration_open
+        - start_date
+        - end_date
+        - topics
+        - participants_count
+        - sessions_count
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Нужен для подачи заявки и подписки; для ссылок используйте slug.
+        slug: { type: string }
+        title: { type: string }
+        title_en: { type: string, nullable: true }
+        description: { type: string, nullable: true }
+        format:
+          type: string
+          enum: [offline, hybrid, online]
+          description: offline — очно, hybrid — гибрид, online — заочно.
+        status:
+          type: string
+          enum:
+            [
+              registration_open,
+              registration_closed,
+              in_progress,
+              completed,
+              cancelled,
+              archived,
+            ]
+        registration_open:
+          type: boolean
+          description: Готовый флаг для бейджа «Регистрация открыта».
+        start_date: { type: string, format: date }
+        end_date: { type: string, format: date }
+        registration_deadline:
+          type: string
+          format: date-time
+          nullable: true
+        city: { type: string, nullable: true }
+        primary_venue:
+          allOf: [{ $ref: "#/components/schemas/Venue" }]
+          description: Отсутствует у полностью заочных конференций.
+        cover_image_url: { type: string, nullable: true }
+        topics:
+          type: array
+          items: { type: string }
+        participants_count:
+          type: integer
+          description: |
+            Число неотозванных заявок. Проекция из событий application.*,
+            отложенно согласована — расхождение до нескольких секунд после
+            подачи заявки является штатным.
+        max_participants: { type: integer, nullable: true }
+        sessions_count:
+          type: integer
+          description: |
+            Число слотов программы — то, что на карточке подписано
+            «докладов». Считает все строки расписания, включая слоты без
+            секции, поэтому не обязано совпадать с суммой `talks_count`
+            по секциям.
+        is_favorite:
+          type: boolean
+          description: |
+            Присутствует **только** в ответах на запросы с токеном. У анонима
+            поля нет вовсе — чтобы не рисовать «не в избранном» тому, кто
+            просто не залогинен.
+        created_at: { type: string, format: date-time }
+
+    ConferenceDetail:
+      allOf:
+        - $ref: "#/components/schemas/ConferenceCard"
+        - type: object
+          required:
+            [
+              favorites_count,
+              organizers,
+              program_committee,
+              sections,
+              schedule,
+              partners,
+            ]
+          properties:
+            description_en: { type: string, nullable: true }
+            favorites_count:
+              type: integer
+              description: Сколько человек добавили конференцию себе.
+            organizers:
+              type: array
+              description: Оргкомитет (`kind = organizer`).
+              items: { $ref: "#/components/schemas/Organizer" }
+            program_committee:
+              type: array
+              description: Программный комитет (`kind = committee`).
+              items: { $ref: "#/components/schemas/Organizer" }
+            sections:
+              type: array
+              items: { $ref: "#/components/schemas/Section" }
+            schedule:
+              type: array
+              items: { $ref: "#/components/schemas/ScheduleSlot" }
+            partners:
+              type: array
+              items: { $ref: "#/components/schemas/Partner" }
+
+    Venue:
+      type: object
+      description: Координат нет ни в модели, ни в ответе.
+      required: [name, address]
+      properties:
+        name: { type: string }
+        address: { type: string }
+        city: { type: string }
+
+    Organizer:
+      type: object
+      required: [id, name, role, kind, sort_order]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        affiliation: { type: string, nullable: true }
+        job_title:
+          type: string
+          nullable: true
+          description: Должность или роль в комитете («Председатель», «Профессор»).
+        photo_url: { type: string, nullable: true }
+        role:
+          type: string
+          description: Свободная строка внутри комитета (chair, member, …).
+        kind:
+          type: string
+          enum: [organizer, committee]
+          description: |
+            organizer — оргкомитет, committee — программный комитет. На вход
+            (internal-контур) принимается также написание `program_committee`.
+        sort_order:
+          type: integer
+          description: Порядок вывода; ответ уже отсортирован по нему.
+
+    OrganizersSection:
+      type: object
+      required: [organizers, program_committee]
+      properties:
+        organizers:
+          type: array
+          items: { $ref: "#/components/schemas/Organizer" }
+        program_committee:
+          type: array
+          items: { $ref: "#/components/schemas/Organizer" }
+
+    Person:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        affiliation: { type: string, nullable: true }
+        user_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Заполнен, только если у человека есть учётная запись.
+
+    Section:
+      type: object
+      required: [id, title, sort_order, talks_count]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        title_en: { type: string, nullable: true }
+        description: { type: string, nullable: true }
+        sort_order: { type: integer }
+        moderator:
+          allOf: [{ $ref: "#/components/schemas/Person" }]
+          description: Отсутствует, пока модератор секции не назначен.
+        talks_count:
+          type: integer
+          description: Число слотов программы, привязанных к секции.
+
+    ScheduleSlot:
+      type: object
+      required: [id, title, slot_date, start_time, end_time]
+      properties:
+        id: { type: string, format: uuid }
+        section_id: { type: string, format: uuid, nullable: true }
+        section_title:
+          type: string
+          nullable: true
+          description: |
+            Приезжает join'ом, чтобы клиенту не приходилось держать словарь
+            секций ради подписи под докладом.
+        title: { type: string }
+        speaker_name: { type: string, nullable: true }
+        speaker_affiliation: { type: string, nullable: true }
+        description: { type: string, nullable: true }
+        room: { type: string, nullable: true }
+        slot_date: { type: string, format: date }
+        start_time: { type: string, example: "10:00:00" }
+        end_time: { type: string, example: "11:30:00" }
+
+    Talk:
+      allOf: [{ $ref: "#/components/schemas/ScheduleSlot" }]
+      description: |
+        Доклад — это слот программы. Отдельной сущности нет: вкладка
+        «Доклады» показывает те же строки, что и «Программа», плоским
+        списком.
+
+    ProgramDay:
+      type: object
+      required: [date, slots]
+      properties:
+        date: { type: string, format: date }
+        slots:
+          type: array
+          items: { $ref: "#/components/schemas/ScheduleSlot" }
+
+    Partner:
+      type: object
+      required: [id, name, sort_order]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        logo_url: { type: string, nullable: true }
+        website_url: { type: string, nullable: true }
+        tier:
+          type: string
+          nullable: true
+          description: Уровень партнёрства (gold, silver, …); группировка — на клиенте.
+        sort_order: { type: integer }
+
+    Participant:
+      type: object
+      description: |
+        Публичная строка списка участников. Умышленно урезана: ни почты, ни
+        идентификатора пользователя, ни состояния заявки.
+      required: [name, form]
+      properties:
+        name: { type: string }
+        form:
+          type: string
+          enum: [speaker, poster, listener]
+        section_id: { type: string, format: uuid, nullable: true }
+        title:
+          type: string
+          nullable: true
+          description: |
+            Тема доклада. У слушателей отсутствует: там это служебное поле
+            заявки, на странице конференции ему не место.
+
+    SupportMessageRequest:
+      type: object
+      additionalProperties: false
+      required: [name, email, message]
+      properties:
+        name: { type: string, minLength: 2, maxLength: 255 }
+        email: { type: string, format: email, maxLength: 255 }
+        topic:
+          type: string
+          enum: [account, application, conference, payment, bug, other]
+          default: other
+          description: Закрытый список; свободный ввод не принимается.
+        subject:
+          type: string
+          maxLength: 500
+          description: Если не прислан, подставляется название темы.
+        message: { type: string, minLength: 10, maxLength: 5000 }
+        conference_id:
+          type: string
+          format: uuid
+          description: Конференция, к которой относится обращение, если она есть.
+
+    HeroInfo:
+      type: object
+      required: [title, description, stats]
+      properties:
+        title: { type: string }
+        description: { type: string }
+        stats:
+          type: object
+          required: [participants, conferences, approvalRate]
+          properties:
+            participants: { type: integer }
+            conferences: { type: integer }
+            approvalRate:
+              type: integer
+              minimum: 0
+              maximum: 100
+              description: Проценты, уже округлённые — рисуется как «96%».
+
+    Pagination:
+      type: object
+      required: [page, per_page, total, total_pages]
+      properties:
+        page: { type: integer }
+        per_page: { type: integer }
+        total: { type: integer }
+        total_pages: { type: integer }
+
+    Filter:
+      description: |
+        Дискриминируемый union по полю `type`. Набор value-полей зависит от
+        типа: `multi` → `values`, `radio` → `options` + `selected`,
+        `text` → `value`, `range` → `from` + `to`.
+      oneOf:
+        - $ref: "#/components/schemas/MultiFilter"
+        - $ref: "#/components/schemas/RadioFilter"
+        - $ref: "#/components/schemas/TextFilter"
+        - $ref: "#/components/schemas/RangeFilter"
+      discriminator:
+        propertyName: type
+        mapping:
+          multi: "#/components/schemas/MultiFilter"
+          radio: "#/components/schemas/RadioFilter"
+          text: "#/components/schemas/TextFilter"
+          range: "#/components/schemas/RangeFilter"
+
+    FilterBase:
+      type: object
+      required: [title, key, type]
+      properties:
+        title:
+          type: string
+          description: Заголовок секции фильтров для отрисовки.
+        key:
+          type: string
+          description: Имя query-параметра, в который уходит выбор.
+        type: { type: string }
+
+    MultiFilter:
+      allOf:
+        - $ref: "#/components/schemas/FilterBase"
+        - type: object
+          required: [values]
+          properties:
+            type: { type: string, enum: [multi] }
+            values:
+              type: array
+              items:
+                type: object
+                required: [value, label, count, selected]
+                properties:
+                  value:
+                    type: string
+                    description: То, что уходит в query-параметр.
+                  label:
+                    type: string
+                    description: Подпись для пользователя.
+                  count:
+                    type: integer
+                    description: |
+                      Сколько конференций попадёт под этот вариант при
+                      текущих остальных фильтрах. Собственный фильтр секции
+                      при подсчёте снимается, иначе выбор одной тематики
+                      обнулял бы все остальные и расширить выбор было бы
+                      невозможно.
+                  selected: { type: boolean }
+
+    RadioFilter:
+      allOf:
+        - $ref: "#/components/schemas/FilterBase"
+        - type: object
+          required: [options, selected]
+          properties:
+            type: { type: string, enum: [radio] }
+            options:
+              type: array
+              items: { type: string }
+            selected: { type: string }
+
+    TextFilter:
+      allOf:
+        - $ref: "#/components/schemas/FilterBase"
+        - type: object
+          required: [value]
+          properties:
+            type: { type: string, enum: [text] }
+            value: { type: string }
+
+    RangeFilter:
+      allOf:
+        - $ref: "#/components/schemas/FilterBase"
+        - type: object
+          properties:
+            type: { type: string, enum: [range] }
+            from: { type: string }
+            to: { type: string }
+
+    User:
+      type: object
+      required: [id, email, first_name, last_name, role, email_verified]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        first_name: { type: string }
+        last_name: { type: string }
+        patronymic: { type: string, nullable: true }
+        affiliation: { type: string, nullable: true }
+        role:
+          type: string
+          enum: [student, moderator, admin]
+          description: |
+            Реализованная ролевая модель. СПИ описывает другой перечень
+            (user / verified_organizer / organizer_member / admin) — расхождение
+            зафиксировано в ЗИ-12.
+        email_verified: { type: boolean }
+
+    Application:
+      type: object
+      required:
+        [id, conference_id, user_id, form, title, status, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        conference_id: { type: string, format: uuid }
+        conference_title: { type: string }
+        section_id: { type: string, format: uuid, nullable: true }
+        user_id: { type: string, format: uuid }
+        form:
+          type: string
+          enum: [speaker, poster, listener]
+        title: { type: string }
+        abstract: { type: string, nullable: true }
+        keywords:
+          type: array
+          items: { type: string }
+        status:
+          type: string
+          enum:
+            [
+              submitted,
+              under_review,
+              revision_requested,
+              accepted,
+              rejected,
+              withdrawn,
+            ]
+        status_changed_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    Problem:
+      type: object
+      description: "RFC 7807. Отдаётся с Content-Type: application/problem+json"
+      required: [type, title, status]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance:
+          type: string
+          description: X-Request-ID, по нему ищется запрос в логах.
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field: { type: string }
+              message: { type: string }

@@ -1,0 +1,160 @@
+on:
+  push:
+    - workflows: [main-ci]
+      filter:
+        branches: ["master"]
+  pull_request:
+    - workflows: [main-ci]
+      filter:
+        target_branches: ["master"]
+  schedule:
+    - workflows: [main-ci]
+      interval: 1h
+      description: nightly full pipeline
+
+workflows:
+  main-ci:
+    tasks:
+      - name: go-build
+        cubes:
+          - name: build-identity-svc
+            image: docker.io/library/golang:1.27.3-alpine
+            script:
+              - apk add --no-cache git
+              - cd back/services/identity-svc
+              - go build ./...
+          - name: build-conference-svc
+            image: docker.io/library/golang:1.27.3-alpine
+            script:
+              - apk add --no-cache git
+              - cd back/services/conference-svc
+              - go build ./...
+          - name: build-application-svc
+            image: docker.io/library/golang:1.27.3-alpine
+            script:
+              - apk add --no-cache git
+              - cd back/services/application-svc
+              - go build ./...
+          - name: build-engagement-svc
+            image: docker.io/library/golang:1.27.3-alpine
+            script:
+              - apk add --no-cache git
+              - cd back/services/engagement-svc
+              - go build ./...
+      - name: go-lint
+        cubes:
+          - name: vet-identity-svc
+            image: docker.io/library/golang:1.27.3-alpine
+            script:
+              - apk add --no-cache git
+              - cd back/services/identity-svc
+              - go vet ./...
+          - name: vet-conference-svc
+            image: docker.io/library/golang:1.27.3-alpine
+            script:
+              - apk add --no-cache git
+              - cd back/services/conference-svc
+              - go vet ./...
+          - name: vet-application-svc
+            image: docker.io/library/golang:1.27.3-alpine
+            script:
+              - apk add --no-cache git
+              - cd back/services/application-svc
+              - go vet ./...
+          - name: vet-engagement-svc
+            image: docker.io/library/golang:1.27.3-alpine
+            script:
+              - apk add --no-cache git
+              - cd back/services/engagement-svc
+              - go vet ./...
+      - name: go-test
+        cubes:
+          - name: test-identity-svc
+            image: docker.io/library/golang:1.27.3-alpine
+            script:
+              - apk add --no-cache git
+              - cd back/services/identity-svc
+              - go test ./... -covermode=atomic
+          - name: test-conference-svc
+            image: docker.io/library/golang:1.27.3-alpine
+            script:
+              - apk add --no-cache git
+              - cd back/services/conference-svc
+              - go test ./... -covermode=atomic
+          - name: test-application-svc
+            image: docker.io/library/golang:1.27.3-alpine
+            script:
+              - apk add --no-cache git
+              - cd back/services/application-svc
+              - go test ./... -covermode=atomic
+          - name: test-engagement-svc
+            image: docker.io/library/golang:1.27.3-alpine
+            script:
+              - apk add --no-cache git
+              - cd back/services/engagement-svc
+              - go test ./... -covermode=atomic
+      - name: django
+        cubes:
+          - name: django-build
+            image: docker.io/library/python:3.12-alpine
+            script:
+              - pip install -r back/services/django-admin/requirements.txt
+          - name: django-lint
+            image: docker.io/library/python:3.12-alpine
+            script:
+              - pip install -r back/services/django-admin/requirements.txt
+              - ruff check back/services/django-admin
+              - flake8 back/services/django-admin
+          - name: django-test
+            image: docker.io/library/python:3.12-alpine
+            script:
+              - pip install -r back/services/django-admin/requirements.txt
+              - pytest -q back/services/django-admin
+      - name: react
+        cubes:
+          - name: react-build
+            image: docker.io/library/node:22-alpine
+            script:
+              - cd front
+              - npm ci --prefer-offline
+              - npm run build
+          - name: react-lint
+            image: docker.io/library/node:22-alpine
+            script:
+              - cd front
+              - npm ci --prefer-offline
+              - npx eslint .
+      - name: security
+        cubes:
+          - name: secret-scan
+            image:
+              name: zricethezav/gitleaks:latest
+              entrypoint: ""
+            script:
+              - gitleaks git --exit-code 1
+          - name: sast
+            image: returntocorp/semgrep:latest
+            script:
+              - semgrep scan --config=auto --error .
+          - name: dependency-scan
+            image: docker.io/library/python:3.12-alpine
+            script:
+              - apk add --no-cache go nodejs npm git
+              - pip install -r back/services/django-admin/requirements.txt
+              - go install golang.org/x/vuln/cmd/govulncheck@latest
+              - |
+                status=0
+                for svc in identity-svc conference-svc application-svc engagement-svc; do
+                  (cd "back/services/${svc}" && govulncheck ./...) || status=1
+                done
+                pip-audit -r back/services/django-admin/requirements.txt || status=1
+                if [ -d "front" ]; then
+                  (cd front && npm ci --prefer-offline && npm audit --audit-level=high) || status=1
+                else
+                  echo "WARNING: front directory not found, skipping npm audit"
+                fi
+                test "$status" -eq 0
+      - name: dast
+        cubes:
+          - name: run-gitlab-dast
+            gitlab_workflow: .sourcecraft/.gitlab-ci.yaml

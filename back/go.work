@@ -1,0 +1,9 @@
+go 1.27.3
+
+use (
+	./services/application-svc
+	./services/conference-svc
+	./services/engagement-svc
+	./services/identity-svc
+	./shared
+)

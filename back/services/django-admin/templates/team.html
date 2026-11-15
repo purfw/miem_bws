@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+{% block title %}Команда админки · ConfHub{% endblock %}
+{% block content %}
+<h1>Команда админки</h1>
+<p>Отдельные учётные записи для работы с модерацией и настройками платформы. У каждого сотрудника свой пароль и 2FA. Доступ к админке — через SSH-туннель.</p>
+{% if notice %}<p class="notice" role="status">Права сохранены. Старые сессии этой учётной записи отозваны.</p>{% endif %}
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+{% if created_invite %}<section aria-labelledby="invite-ready"><h2 id="invite-ready">Приглашение для {{ created_invite.username }}</h2>
+  <p>Передайте ссылку сотруднику. Она действует {{ created_invite.minutes }} минут и используется один раз. Новое приглашение для этого логина отменяет предыдущее.</p>
+  <label for="invite-url">Ссылка активации</label><input id="invite-url" style="width:100%" readonly value="{{ created_invite.url }}" onclick="this.select()">
+  <p class="muted">Сотрудник открывает ссылку через свой SSH-туннель, задаёт пароль и подключает 2FA. Без активации вход невозможен.</p>
+</section>{% endif %}
+<section aria-labelledby="invite-title"><h2 id="invite-title">Пригласить сотрудника</h2>
+  <form class="form-grid" method="post" action="{% url 'invite_admin' %}">{% csrf_token %}
+    {{ invitation_form.as_div }}
+    <div><button>Создать приглашение</button></div>
+  </form>
+</section>
+<section aria-labelledby="team-title"><h2 id="team-title">Сотрудники</h2><div class="account-grid">
+{% for row in accounts %}<article class="account">
+  <h3>{{ row.account.username }}{% if row.account.username == admin_username %} · вы{% endif %}</h3>
+  <p><span class="badge{% if row.account.active %} active{% endif %}">{% if row.account.active %}Доступ включён{% else %}Доступ отключён{% endif %}</span></p>
+  {% if row.account.username != admin_username %}
+  <form class="role-options" method="post" action="{% url 'change_admin_access' row.account.actor_id %}">{% csrf_token %}
+    <input type="hidden" name="action" value="roles">{{ row.form.version }}
+    <fieldset><legend>Разрешения</legend>{{ row.form.roles }}</fieldset>
+    <button class="secondary">Сохранить права</button>
+  </form>
+  <form method="post" action="{% url 'change_admin_access' row.account.actor_id %}">{% csrf_token %}
+    <input type="hidden" name="version" value="{{ row.account.version }}">
+    {% if row.account.active %}<button class="danger" name="action" value="disable">Отключить доступ</button>{% else %}<button name="action" value="enable">Включить доступ</button>{% endif %}
+  </form>
+  {% else %}<p>Ваши роли: {{ row.account.roles|join:', ' }}.</p><p class="muted">Ваши права и статус может изменить другой администратор.</p>{% endif %}
+</article>{% endfor %}
+</div></section>
+{% endblock %}

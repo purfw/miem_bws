@@ -1,0 +1,15 @@
+# Use this overlay when ports 80/443 are owned by a reverse proxy on the host.
+# The application gateway is exposed on loopback only; the host proxy terminates TLS.
+services:
+  nginx:
+    volumes: !override
+      - ./nginx/nginx.local.conf:/etc/nginx/nginx.conf:ro
+    ports: !override
+      - "127.0.0.1:${HOST_PROXY_PORT:-18080}:80"
+    depends_on: !override
+      - identity-svc
+      - conference-svc
+      - application-svc
+      - engagement-svc
+      - django-admin
+      - frontend

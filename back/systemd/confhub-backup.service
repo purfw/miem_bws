@@ -1,0 +1,12 @@
+[Unit]
+Description=Create a ConfHub application backup
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+Environment=RETENTION_DAYS=14
+ExecStart=/srv/confhub/back/scripts/backup.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

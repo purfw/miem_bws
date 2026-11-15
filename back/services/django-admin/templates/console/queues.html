@@ -1,0 +1,22 @@
+{% extends 'console/section.html' %}
+{% block description %}Задания с ошибкой из четырёх сервисов. Успешные операции не выводятся и не повторяются.{% endblock %}
+{% block section_content %}
+  <div class="records">
+    {% for item in queue_items %}
+      <article class="panel record" aria-labelledby="queue-{{ item.service }}-{{ item.queue }}-{{ item.id }}">
+        <h2 id="queue-{{ item.service }}-{{ item.queue }}-{{ item.id }}">{{ item.service_label }} · {{ item.queue_label }}</h2>
+        <dl class="record-facts">
+          <div><dt>Задание</dt><dd>{{ item.id }}</dd></div>
+          <div><dt>Создано</dt><dd>{{ item.created_at }}</dd></div>
+          <div><dt>Попыток</dt><dd>{{ item.attempts }}</dd></div>
+          <div><dt>Статус</dt><dd>{{ item.status }}</dd></div>
+        </dl>
+        <form method="post" action="{% url 'retry_queue' item.id %}">
+          {% include 'console/action_context.html' %}
+          <input type="hidden" name="service" value="{{ item.service }}"><input type="hidden" name="queue" value="{{ item.queue }}">
+          <button>Повторить</button>
+        </form>
+      </article>
+    {% empty %}<div class="panel empty-state"><h2>Заданий для повтора нет</h2><p>{% if errors %}В загруженных очередях нет заданий для повтора.{% else %}Очереди не содержат неудачных заданий.{% endif %}</p></div>{% endfor %}
+  </div>
+{% endblock %}

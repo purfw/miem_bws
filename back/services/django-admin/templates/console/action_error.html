@@ -1,0 +1,7 @@
+{% extends 'console/base.html' %}
+{% block title %}Действие не выполнено · ConfHub{% endblock %}
+{% block content %}
+  <header class="page-heading"><h1>Действие не выполнено</h1></header>
+  <div class="message error" role="alert"><p>{{ message }}</p></div>
+  <a class="button secondary" href="{{ return_url }}">Вернуться в раздел</a>
+{% endblock %}

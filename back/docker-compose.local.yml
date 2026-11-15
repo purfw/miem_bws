@@ -1,0 +1,50 @@
+services:
+  identity-svc:
+    image: !reset null
+    build:
+      context: .
+      dockerfile: services/identity-svc/Dockerfile
+  conference-svc:
+    image: !reset null
+    build:
+      context: .
+      dockerfile: services/conference-svc/Dockerfile
+  application-svc:
+    image: !reset null
+    build:
+      context: .
+      dockerfile: services/application-svc/Dockerfile
+  engagement-svc:
+    image: !reset null
+    build:
+      context: .
+      dockerfile: services/engagement-svc/Dockerfile
+    environment:
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+
+  mailpit:
+    networks:
+      app:
+        ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.20.41
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+
+  frontend:
+    image: !reset null
+    build:
+      context: ../front
+      dockerfile: Dockerfile
+
+  nginx:
+    volumes: !override
+      - ./nginx/nginx.local.conf:/etc/nginx/nginx.conf:ro
+    ports: !override
+      - "8080:80"
+    depends_on: !override
+      - identity-svc
+      - conference-svc
+      - application-svc
+      - engagement-svc
+      - django-admin
+      - frontend

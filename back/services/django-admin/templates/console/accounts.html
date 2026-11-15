@@ -1,0 +1,15 @@
+{% extends 'console/section.html' %}
+{% block description %}Управляйте доступом пользователя к платформе по его UUID.{% endblock %}
+{% block section_content %}
+  <section class="panel">
+    <h2>Изменить статус учётной записи</h2>
+    <p>Блокировка отзывает сессии пользователя. Разблокировка разрешает ему снова войти в аккаунт.</p>
+    <form class="form-grid" method="post" action="{% url 'set_account_active' %}">
+      {% include 'console/action_context.html' %}
+      <label for="account-id">UUID пользователя<input id="account-id" name="user_id" maxlength="36" autocomplete="off" required></label>
+      <div class="actions"><button class="danger" name="active" value="false">Заблокировать</button><button class="secondary" name="active" value="true">Разблокировать</button></div>
+    </form>
+  </section>
+  <section class="panel"><h2>Найти пользователя</h2><p>Если UUID неизвестен, найдите пользователя по email или имени. В списке также доступны назначение роли и изменение статуса.</p><a class="button secondary" href="{% url 'users' %}">Открыть пользователей</a></section>
+{% endblock %}
+{% block pagination %}{% endblock %}

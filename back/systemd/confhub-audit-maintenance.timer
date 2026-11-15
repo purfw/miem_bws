@@ -1,0 +1,11 @@
+[Unit]
+Description=Run ConfHub audit partition maintenance monthly
+
+[Timer]
+OnCalendar=*-*-01 03:30:00 Europe/Moscow
+RandomizedDelaySec=15m
+Persistent=true
+Unit=confhub-audit-maintenance.service
+
+[Install]
+WantedBy=timers.target

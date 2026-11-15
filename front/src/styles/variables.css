@@ -1,0 +1,42 @@
+:root {
+  --color-bg: #fafaf9;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f5f4f2;
+  --color-text: #1a1814;
+  --color-text-light: #57534a;
+  --color-text-muted: #6b6b6b;
+  --color-text-on-dark: #f4f3f1;
+  --color-border: #d1cec7;
+  --color-border-hover: #e8e6e1;
+  --color-accent-text: #b0470e;
+  --color-accent: #ED6E1D;
+  --color-accent-hover: #d55b12;
+  --color-dark: #0e0e0e;
+  --color-dark-soft: #1a1a1a;
+  --color-surface-muted: #f5f4f2;
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  --font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --second-family: "JetBrains Mono", "Fira Code", monospace;
+  --third-family: "Fraunces", Georgia, serif;
+  --font3: "Georgia", serif;
+  --font4: "Arial", sans-serif;
+
+  --font-sans: var(--font-family);
+  --font-display: var(--third-family);
+  --font-mono: var(--second-family);
+
+  --container-max: 1440px;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.04);
+}
