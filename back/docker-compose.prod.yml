@@ -377,7 +377,7 @@ services:
         ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.20.10
       storage:
         ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.50.10
-    image: nginx:1.27-alpine
+    image: nginx:1.30.7-alpine
     volumes:
       - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
       - ${TLS_CERTS_DIR:?TLS_CERTS_DIR is required}:/etc/nginx/certs:ro
