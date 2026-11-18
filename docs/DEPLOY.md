@@ -188,7 +188,7 @@ TLS на системном nginx:
 
 ```bash
 PUBLIC_HOST=91.132.58.253 HOST_PROXY_PORT=18080 ./scripts/deploy.sh
-cp nginx/confhub.host.conf.example /etc/nginx/sites-enabled/confhub.conf
+cp nginx/confhub.host.conf.example /etc/nginx/conf.d/confhub.conf
 nginx -t && systemctl reload nginx
 ```
 
