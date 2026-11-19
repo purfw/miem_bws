@@ -113,6 +113,7 @@ func (c *ConferenceCache) Subscribe(nc *nats.Conn) error {
 			Payload sharedevents.ConferenceUpdated `json:"payload"`
 		}
 		if err := json.Unmarshal(m.Data, &env); err != nil {
+			slog.Warn("conference cache: bad update event", "err", err)
 			return
 		}
 		c.mu.Lock()

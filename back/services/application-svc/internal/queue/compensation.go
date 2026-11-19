@@ -27,7 +27,7 @@ func SubscribeConferenceCancellation(ctx context.Context, nc *nats.Conn, svc *se
 		}
 		if err := json.Unmarshal(m.Data, &env); err != nil {
 			slog.Warn("compensation: bad event", "err", err)
-			return err
+			return natsx.Permanent(err)
 		}
 		if env.Payload.NewStatus != "cancelled" {
 			return nil

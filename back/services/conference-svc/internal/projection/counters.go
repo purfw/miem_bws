@@ -51,7 +51,7 @@ func (c *Counters) Subscribe(ctx context.Context, nc *nats.Conn, failures ...*na
 			var env envelope
 			if err := json.Unmarshal(m.Data, &env); err != nil {
 				slog.Warn("counters: bad envelope", "subject", subject, "err", err)
-				return err
+				return natsx.Permanent(err)
 			}
 			eventCtx, span := telemetry.Consumer(ctx, durable, env.TraceParent, env.TraceState)
 			defer span.End()

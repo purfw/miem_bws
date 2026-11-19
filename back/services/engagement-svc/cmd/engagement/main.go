@@ -164,7 +164,14 @@ func main() {
 		slog.Error("API contract", "err", err)
 		os.Exit(1)
 	}
-	srv := &http.Server{Addr: fmt.Sprintf(":%d", cfg.Port), Handler: mux, ReadHeaderTimeout: 3 * time.Second}
+	srv := &http.Server{
+		Addr:              fmt.Sprintf(":%d", cfg.Port),
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
 	go func() {
 		slog.Info("listening", "port", cfg.Port)
 		if err := transport.ListenAndServe(srv); err != nil && err != http.ErrServerClosed {

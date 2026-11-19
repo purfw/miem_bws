@@ -32,7 +32,7 @@ func (p *OrganizerAccess) Subscribe(ctx context.Context, nc *nats.Conn, failures
 			var env envelope
 			if err := json.Unmarshal(msg.Data, &env); err != nil {
 				slog.Warn("organizer access: bad envelope", "subject", subject, "err", err)
-				return err
+				return natsx.Permanent(err)
 			}
 			eventCtx, span := telemetry.Consumer(ctx, durable, env.TraceParent, env.TraceState)
 			defer span.End()

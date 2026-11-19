@@ -50,10 +50,20 @@ func (s *FailureStore) save(ctx context.Context, consumer string, msg *nats.Msg,
 	return err
 }
 
+// ErrPermanent marks a handler failure that no redelivery can fix, such as an
+// undecodable payload. Handlers wrap it so the message is quarantined (or
+// terminated without a FailureStore) on the first attempt.
+var ErrPermanent = errors.New("permanent event failure")
+
+// Permanent wraps err with ErrPermanent.
+func Permanent(err error) error {
+	return fmt.Errorf("%w: %w", ErrPermanent, err)
+}
+
 // A broker message is acknowledged only after processing or durable quarantine.
 func deliveryResult(handler func() error, attempts uint64, save func() error) error {
 	err := handler()
-	if err == nil || attempts < maxHandlerAttempts || save == nil {
+	if err == nil || save == nil || (attempts < maxHandlerAttempts && !errors.Is(err, ErrPermanent)) {
 		return err
 	}
 	return save()
@@ -70,7 +80,7 @@ func (s *FailureStore) Run(ctx context.Context) {
 			for i := 0; i < 20; i++ {
 				done, err := s.replayOne(ctx)
 				if err != nil {
-					slog.Error("event replay failed", "schema", s.schema)
+					slog.Error("event replay failed", "schema", s.schema, "err", err)
 					break
 				}
 				if !done {
@@ -116,7 +126,7 @@ func (s *FailureStore) replayOne(ctx context.Context) (bool, error) {
 	status := "completed"
 	if err := handler(&nats.Msg{Subject: subject, Data: payload}); err != nil {
 		status = "pending"
-		if attempts+1 >= maxHandlerAttempts {
+		if attempts+1 >= maxHandlerAttempts || errors.Is(err, ErrPermanent) {
 			status = "dead"
 		}
 	}

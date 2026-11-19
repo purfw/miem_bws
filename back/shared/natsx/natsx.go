@@ -121,6 +121,8 @@ func EnsureEventStream(nc *nats.Conn) (nats.JetStreamContext, error) {
 // SubscribeDurable registers a queue consumer with explicit ACK. Without a
 // FailureStore the message is redelivered until the handler succeeds; with one
 // it is quarantined in PostgreSQL after the configured number of attempts.
+// Errors wrapping ErrPermanent are quarantined at once, or terminated when no
+// FailureStore is configured.
 func SubscribeDurable(nc *nats.Conn, subject, durable string, handler func(*nats.Msg) error, stores ...*FailureStore) error {
 	var store *FailureStore
 	if len(stores) > 0 {
@@ -178,6 +180,13 @@ func subscribeDurable(nc *nats.Conn, subject, durable string, handler func(*nats
 			}
 		}
 		if err := deliveryResult(func() error { return handler(msg) }, attempts, save); err != nil {
+			if errors.Is(err, ErrPermanent) {
+				slog.Error("durable event dropped", "subject", subject, "durable", durable, "err", err)
+				if termErr := msg.Term(); termErr != nil {
+					slog.Error("nats term failed", "subject", subject, "durable", durable, "err", termErr)
+				}
+				return
+			}
 			slog.Error("durable event handler failed", "subject", subject, "durable", durable, "err", err)
 			if nakErr := msg.NakWithDelay(5 * time.Second); nakErr != nil {
 				slog.Error("nats nak failed", "subject", subject, "durable", durable, "err", nakErr)

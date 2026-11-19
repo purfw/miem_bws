@@ -99,7 +99,7 @@ func main() {
 
 	users := repository.NewUsers(pool)
 	jwtVerifier.WithStateResolver(users.AuthState)
-	refresh := service.NewRefreshStore(rdb, cfg.RefreshTokenTTL)
+	refresh := service.NewRefreshStore(rdb, cfg.RefreshTokenTTL, cfg.AccessTokenTTL)
 	rl := service.NewLoginRateLimiter(rdb, cfg.LoginRateLimit, cfg.LoginRateWindow)
 	passwordChecker := service.NewPwnedChecker(cfg.PwnedPasswordsURL, cfg.PwnedPasswordsTimeout)
 	auth := service.NewAuth(users, jwtIssuer, refresh, rl, cfg.AccessTokenTTL, passwordChecker)

@@ -61,7 +61,9 @@ func (s *Applications) ListMyVerifications(ctx context.Context, userID uuid.UUID
 		return nil, err
 	}
 	for i := range items {
-		items[i].Documents, _ = s.repo.ListVerificationDocuments(ctx, items[i].ID)
+		if items[i].Documents, err = s.repo.ListVerificationDocuments(ctx, items[i].ID); err != nil {
+			return nil, err
+		}
 	}
 	return items, nil
 }
@@ -138,7 +140,9 @@ func (s *Applications) ListVerificationQueue(ctx context.Context, status string,
 		return nil, err
 	}
 	for i := range items {
-		items[i].Documents, _ = s.repo.ListVerificationDocuments(ctx, items[i].ID)
+		if items[i].Documents, err = s.repo.ListVerificationDocuments(ctx, items[i].ID); err != nil {
+			return nil, err
+		}
 	}
 	return items, nil
 }

@@ -315,10 +315,10 @@ func (c *Consumer) handle(ctx context.Context, h func(ctx context.Context, env e
 		var env envelope
 		if err := json.Unmarshal(m.Data, &env); err != nil {
 			slog.Warn("bad envelope", "subject", m.Subject, "err", err)
-			return err
+			return natsx.Permanent(err)
 		}
 		if env.EventID == uuid.Nil || env.EventType != m.Subject {
-			return errors.New("invalid event identity")
+			return natsx.Permanent(errors.New("invalid event identity"))
 		}
 		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()

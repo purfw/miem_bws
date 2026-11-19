@@ -27,14 +27,15 @@ func key(ip, _ string) string {
 
 func (l *LoginRateLimiter) Check(ctx context.Context, ip, email string) error {
 	k := key(ip, email)
-	n, err := l.rdb.Incr(ctx, k).Result()
-	if err != nil {
+	// NX keeps the window fixed from the first attempt; running it in the same
+	// transaction guarantees the counter never exists without a TTL.
+	pipe := l.rdb.TxPipeline()
+	incr := pipe.Incr(ctx, k)
+	pipe.ExpireNX(ctx, k, l.window)
+	if _, err := pipe.Exec(ctx); err != nil {
 		return err
 	}
-	if n == 1 {
-		_ = l.rdb.Expire(ctx, k, l.window).Err()
-	}
-	if int(n) > l.limit {
+	if int(incr.Val()) > l.limit {
 		return ErrTooMany
 	}
 	return nil

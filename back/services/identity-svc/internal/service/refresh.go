@@ -13,12 +13,13 @@ import (
 )
 
 type RefreshStore struct {
-	rdb *redis.Client
-	ttl time.Duration
+	rdb       *redis.Client
+	ttl       time.Duration
+	accessTTL time.Duration
 }
 
-func NewRefreshStore(rdb *redis.Client, ttl time.Duration) *RefreshStore {
-	return &RefreshStore{rdb: rdb, ttl: ttl}
+func NewRefreshStore(rdb *redis.Client, ttl, accessTTL time.Duration) *RefreshStore {
+	return &RefreshStore{rdb: rdb, ttl: ttl, accessTTL: accessTTL}
 }
 
 type refreshPayload struct {
@@ -200,8 +201,13 @@ redis.call('SET', KEYS[3], ARGV[1], 'EX', ARGV[2])
 return 1
 `)
 
+// The revocation marker must outlive every access token issued before it.
+func (r *RefreshStore) revokedBeforeTTL() time.Duration {
+	return r.ttl + r.accessTTL
+}
+
 func (r *RefreshStore) RevokeAllForUser(ctx context.Context, userID uuid.UUID) error {
-	return revokeUserScript.Run(ctx, r.rdb, []string{userIndexKey(userID), legacyUserIndexKey(userID), "auth:revoked_before:" + userID.String()}, time.Now().Unix(), int64((r.ttl + 15*time.Minute).Seconds())).Err()
+	return revokeUserScript.Run(ctx, r.rdb, []string{userIndexKey(userID), legacyUserIndexKey(userID), "auth:revoked_before:" + userID.String()}, time.Now().Unix(), int64(r.revokedBeforeTTL().Seconds())).Err()
 }
 
 func (r *RefreshStore) BlockUser(ctx context.Context, userID uuid.UUID) error {

@@ -28,6 +28,8 @@ func TestDeliveryAcknowledgmentRequiresSuccessOrDurableSave(t *testing.T) {
 		{"quarantine", 10, failed, nil, true, nil},
 		{"keep_unacknowledged", 10, failed, storageFailed, true, storageFailed},
 		{"late_quarantine", 50, failed, nil, true, nil},
+		{"permanent_quarantine", 1, Permanent(failed), nil, true, nil},
+		{"permanent_keep_unacknowledged", 1, Permanent(failed), storageFailed, true, storageFailed},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			called := false
@@ -39,6 +41,9 @@ func TestDeliveryAcknowledgmentRequiresSuccessOrDurableSave(t *testing.T) {
 	}
 	if err := deliveryResult(func() error { return failed }, 100, nil); !errors.Is(err, failed) {
 		t.Fatal("failure dropped without store")
+	}
+	if err := deliveryResult(func() error { return Permanent(failed) }, 1, nil); !errors.Is(err, ErrPermanent) || !errors.Is(err, failed) {
+		t.Fatalf("permanent failure without store must terminate: %v", err)
 	}
 }
 

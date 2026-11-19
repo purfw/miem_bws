@@ -6,8 +6,10 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/nats-io/nats.go"
 
 	"github.com/confhub/engagement-svc/internal/client"
+	"github.com/confhub/shared/natsx"
 )
 
 type localeStub struct {
@@ -52,5 +54,18 @@ func TestLocalizedContent(t *testing.T) {
 	}
 	if got := applicationLabel("ru", "accepted"); got != "принята" {
 		t.Fatalf("label = %q", got)
+	}
+}
+
+func TestMalformedEnvelopeIsPermanent(t *testing.T) {
+	c := &Consumer{}
+	handler := c.handle(context.Background(), func(context.Context, envelope) error {
+		t.Fatal("malformed event dispatched")
+		return nil
+	})
+	for _, data := range []string{`{`, `{"event_type":"user.registered"}`, `{"event_id":"` + uuid.NewString() + `","event_type":"other"}`} {
+		if err := handler(&nats.Msg{Subject: "user.registered", Data: []byte(data)}); !errors.Is(err, natsx.ErrPermanent) {
+			t.Fatalf("%s: %v", data, err)
+		}
 	}
 }

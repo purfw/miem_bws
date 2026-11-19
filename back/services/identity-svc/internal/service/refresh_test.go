@@ -33,7 +33,7 @@ func isolatedRedis(t *testing.T) *redis.Client {
 
 func TestRefreshRotationReplayAndLogoutKeepOtherSessions(t *testing.T) {
 	client := isolatedRedis(t)
-	store := NewRefreshStore(client, time.Hour)
+	store := NewRefreshStore(client, time.Hour, 15*time.Minute)
 	ctx := context.Background()
 	user := uuid.New()
 	old, err := store.Issue(ctx, user, "browser", 7)
@@ -78,7 +78,7 @@ func TestRefreshRotationReplayAndLogoutKeepOtherSessions(t *testing.T) {
 
 func TestRefreshRevocationIsAtomicWithConcurrentRotation(t *testing.T) {
 	client := isolatedRedis(t)
-	store := NewRefreshStore(client, time.Hour)
+	store := NewRefreshStore(client, time.Hour, 15*time.Minute)
 	ctx := context.Background()
 	for i := 0; i < 50; i++ {
 		user := uuid.New()
@@ -115,7 +115,7 @@ func TestRefreshRevocationIsAtomicWithConcurrentRotation(t *testing.T) {
 
 func TestRevokeAllCleansLegacyTokensAndBlocksUser(t *testing.T) {
 	client := isolatedRedis(t)
-	store := NewRefreshStore(client, time.Hour)
+	store := NewRefreshStore(client, time.Hour, 15*time.Minute)
 	ctx := context.Background()
 	user, otherUser := uuid.New(), uuid.New()
 	first, err := store.Issue(ctx, user, "first")
@@ -190,5 +190,12 @@ func TestLoginRateLimitIsPerAddressAndHasExpiry(t *testing.T) {
 	limiter.Reset(ctx, ip, "")
 	if err := limiter.Check(ctx, ip, ""); err != nil {
 		t.Fatal("limiter reset failed")
+	}
+}
+
+func TestRevocationMarkerOutlivesAccessTokens(t *testing.T) {
+	store := NewRefreshStore(nil, time.Hour, 2*time.Hour)
+	if got := store.revokedBeforeTTL(); got < 2*time.Hour {
+		t.Fatalf("revocation marker expires before access tokens: %v", got)
 	}
 }

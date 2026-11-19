@@ -49,7 +49,11 @@ func (h *Applications) createVerification(w http.ResponseWriter, r *http.Request
 
 func (h *Applications) myVerifications(w http.ResponseWriter, r *http.Request) {
 	c := jwtauth.ClaimsFromContext(r.Context())
-	uid, _ := uuid.Parse(c.UserID)
+	uid, err := uuid.Parse(c.UserID)
+	if err != nil {
+		httputil.WriteError(w, r, errUnauth())
+		return
+	}
 	items, err := h.svc.ListMyVerifications(r.Context(), uid)
 	if err != nil {
 		httputil.WriteError(w, r, err)
@@ -64,7 +68,11 @@ func (h *Applications) myVerifications(w http.ResponseWriter, r *http.Request) {
 
 func (h *Applications) uploadVerificationDocument(w http.ResponseWriter, r *http.Request) {
 	c := jwtauth.ClaimsFromContext(r.Context())
-	uid, _ := uuid.Parse(c.UserID)
+	uid, err := uuid.Parse(c.UserID)
+	if err != nil {
+		httputil.WriteError(w, r, errUnauth())
+		return
+	}
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
 		httputil.WriteError(w, r, &httputil.ValidationError{Fields: []httputil.FieldError{{Field: "id", Message: "invalid uuid"}}})
@@ -90,7 +98,11 @@ func (h *Applications) uploadVerificationDocument(w http.ResponseWriter, r *http
 
 func (h *Applications) downloadVerificationDocument(w http.ResponseWriter, r *http.Request) {
 	c := jwtauth.ClaimsFromContext(r.Context())
-	uid, _ := uuid.Parse(c.UserID)
+	uid, err := uuid.Parse(c.UserID)
+	if err != nil {
+		httputil.WriteError(w, r, errUnauth())
+		return
+	}
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
 		httputil.WriteError(w, r, &httputil.ValidationError{Fields: []httputil.FieldError{{Field: "id", Message: "invalid uuid"}}})

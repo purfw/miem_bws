@@ -178,7 +178,11 @@ func (h *Internal) updateRole(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, r, &httputil.ValidationError{Fields: []httputil.FieldError{{Field: "role", Message: "must be user/verified_organizer/organizer_member/admin"}}})
 		return
 	}
-	by, _ := uuid.Parse(in.ChangedBy)
+	by, err := uuid.Parse(in.ChangedBy)
+	if err != nil {
+		httputil.WriteError(w, r, &httputil.ValidationError{Fields: []httputil.FieldError{{Field: "changed_by", Message: "invalid uuid"}}})
+		return
+	}
 	if err := h.auth.AssignRole(r.Context(), id, role, by, in.PreserveAdmin); err != nil {
 		httputil.WriteError(w, r, err)
 		return

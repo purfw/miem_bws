@@ -22,7 +22,7 @@ func SubscribeDocumentGeneration(ctx context.Context, nc *nats.Conn, svc *servic
 		}
 		if err := json.Unmarshal(m.Data, &env); err != nil {
 			slog.Warn("documents: bad event", "err", err)
-			return err
+			return natsx.Permanent(err)
 		}
 		if env.Payload.NewStatus != "completed" {
 			return nil

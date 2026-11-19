@@ -38,6 +38,7 @@ type ResearchIdentity struct {
 type Identity struct {
 	mu     sync.RWMutex
 	cache  map[uuid.UUID]Profile
+	swept  time.Time
 	hc     *http.Client
 	url    string
 	secret string
@@ -63,10 +64,24 @@ func (c *Identity) Profile(ctx context.Context, id uuid.UUID) (Profile, error) {
 	if err != nil {
 		return Profile{}, err
 	}
-	c.mu.Lock()
-	c.cache[id] = p
-	c.mu.Unlock()
+	c.store(id, p, time.Now())
 	return p, nil
+}
+
+// store drops expired profiles at most once per TTL so the cache stays
+// bounded by the users seen in one TTL window.
+func (c *Identity) store(id uuid.UUID, p Profile, now time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if now.Sub(c.swept) >= profileTTL {
+		for k, v := range c.cache {
+			if now.Sub(v.fetchedAt) >= profileTTL {
+				delete(c.cache, k)
+			}
+		}
+		c.swept = now
+	}
+	c.cache[id] = p
 }
 
 type userResp struct {

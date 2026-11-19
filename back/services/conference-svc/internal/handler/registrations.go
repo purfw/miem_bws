@@ -97,14 +97,13 @@ func claimsAndUserID(r *http.Request) (*jwtauth.Claims, uuid.UUID, error) {
 func (h *Registrations) checkRegisterRate(ctx context.Context, userID uuid.UUID) error {
 	hash := sha256.Sum256([]byte(userID.String()))
 	key := "rate:conference_register:" + hex.EncodeToString(hash[:8]) + ":" + time.Now().UTC().Format("200601021504")
-	count, err := h.redis.Incr(ctx, key).Result()
-	if err != nil {
+	pipe := h.redis.TxPipeline()
+	incr := pipe.Incr(ctx, key)
+	pipe.Expire(ctx, key, 2*time.Minute)
+	if _, err := pipe.Exec(ctx); err != nil {
 		return fmt.Errorf("rate limiter unavailable: %w", httputil.ErrUnavailable)
 	}
-	if count == 1 {
-		_ = h.redis.Expire(ctx, key, 2*time.Minute).Err()
-	}
-	if count > 20 {
+	if incr.Val() > 20 {
 		return fmt.Errorf("registration rate limit: %w", httputil.ErrTooMany)
 	}
 	return nil

@@ -73,7 +73,7 @@ func (p *PwnedChecker) Compromised(ctx context.Context, password string) (bool, 
 			return count > 0, nil
 		}
 	}
-	if err := scanner.Err(); err != nil && !errors.Is(err, io.EOF) {
+	if err := scanner.Err(); err != nil {
 		return false, err
 	}
 	return false, nil

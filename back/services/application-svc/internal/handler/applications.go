@@ -103,7 +103,11 @@ func (h *Applications) listMine(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, r, errUnauth())
 		return
 	}
-	uid, _ := uuid.Parse(c.UserID)
+	uid, err := uuid.Parse(c.UserID)
+	if err != nil {
+		httputil.WriteError(w, r, errUnauth())
+		return
+	}
 	apps, err := h.svc.List(r.Context(), repository.ListFilter{UserID: &uid, Limit: 100})
 	if err != nil {
 		httputil.WriteError(w, r, err)
@@ -122,7 +126,11 @@ func (h *Applications) detail(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, r, errUnauth())
 		return
 	}
-	uid, _ := uuid.Parse(c.UserID)
+	uid, err := uuid.Parse(c.UserID)
+	if err != nil {
+		httputil.WriteError(w, r, errUnauth())
+		return
+	}
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
 		httputil.WriteError(w, r, &httputil.ValidationError{Fields: []httputil.FieldError{{Field: "id", Message: "invalid uuid"}}})
@@ -164,7 +172,11 @@ func (h *Applications) updateMeta(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, r, errUnauth())
 		return
 	}
-	uid, _ := uuid.Parse(c.UserID)
+	uid, err := uuid.Parse(c.UserID)
+	if err != nil {
+		httputil.WriteError(w, r, errUnauth())
+		return
+	}
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
 		httputil.WriteError(w, r, &httputil.ValidationError{Fields: []httputil.FieldError{{Field: "id", Message: "invalid uuid"}}})
@@ -200,7 +212,11 @@ func (h *Applications) withdraw(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, r, errUnauth())
 		return
 	}
-	uid, _ := uuid.Parse(c.UserID)
+	uid, err := uuid.Parse(c.UserID)
+	if err != nil {
+		httputil.WriteError(w, r, errUnauth())
+		return
+	}
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
 		httputil.WriteError(w, r, &httputil.ValidationError{Fields: []httputil.FieldError{{Field: "id", Message: "invalid uuid"}}})
