@@ -2,44 +2,57 @@ groups:
   - name: container_alerts
     interval: 30s
     rules:
+      # cAdvisor runs with --store_container_labels=false, so containers are
+      # identified by the `name` label (the Docker container name).
+      # A stopped container disappears from cAdvisor output; max_over_time keeps
+      # its last sample for an hour, and `max by (name)` merges the series of a
+      # recreated container with the same name so redeploys do not fire.
+      # Only long-running production containers: the lab project and one-off
+      # `compose run` containers are removed on purpose.
       - alert: ContainerDown
         expr: |
-          count(
-            container_last_seen{name!=""}) by (name)
-          == 0
+          time() - max by (name) (
+            max_over_time(container_last_seen{name=~"confhub-.+", name!~"confhub-lab-.+|.+-run-.+"}[1h])
+          ) > 60
         for: 1m
         labels:
           severity: critical
           component: container
         annotations:
           summary: "Container {{ $labels.name }} is down"
-          description: "Container {{ $labels.name }} has been down for more than 1 minute"
+          description: "Container {{ $labels.name }} has not been seen by cAdvisor for more than 2 minutes"
 
       - alert: HighCPUUsage
         expr: |
-          rate(container_cpu_usage_seconds_total[5m]) * 100 > 80
+          sum by (name) (rate(container_cpu_usage_seconds_total{name!=""}[5m])) * 100 > 80
         for: 5m
         labels:
           severity: warning
           component: container
         annotations:
-          summary: "High CPU usage on {{ $labels.container_label_com_docker_compose_service }}"
-          description: "Container {{ $labels.container_label_com_docker_compose_service }} CPU usage is above 80% for 5 minutes"
+          summary: "High CPU usage on {{ $labels.name }}"
+          description: "Container {{ $labels.name }} CPU usage is above 80% of one core for 5 minutes"
 
       - alert: HighMemoryUsage
+        # Only containers with a memory limit: without one the limit is 0.
         expr: |
-          container_memory_usage_bytes / container_spec_memory_limit_bytes * 100 > 80
+          max by (name) (
+            container_memory_working_set_bytes{name!=""}
+              / (container_spec_memory_limit_bytes{name!=""} > 0)
+          ) * 100 > 80
         for: 5m
         labels:
           severity: warning
           component: container
         annotations:
-          summary: "High memory usage on {{ $labels.container_label_com_docker_compose_service }}"
-          description: "Container {{ $labels.container_label_com_docker_compose_service }} memory usage is above 80%"
+          summary: "High memory usage on {{ $labels.name }}"
+          description: "Container {{ $labels.name }} memory usage is above 80% of its limit"
 
+      # cAdvisor has no restart counter; a restart changes the start time of the
+      # same container.
       - alert: ContainerRestartLoop
         expr: |
-          increase(container_restart_count[1h]) > 3
+          max by (name) (changes(container_start_time_seconds{name!=""}[1h])) > 3
         for: 1m
         labels:
           severity: critical

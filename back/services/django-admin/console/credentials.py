@@ -229,10 +229,14 @@ def get_credentials(username=None):
     )
     accounts = _cached_accounts(auth_file, key_file, revision)
     if username is None:
+        # None when no active superadmin is left; callers deny the login.
         return next(
-            account
-            for account in accounts
-            if account.active and "superadmin" in account.roles
+            (
+                account
+                for account in accounts
+                if account.active and "superadmin" in account.roles
+            ),
+            None,
         )
     return next(
         (

@@ -83,8 +83,15 @@ case "${1:-help}" in
 
         mkdir -p "${BACKUP_ROOT:-/srv/confhub-backups}"
 
-        if [[ -f "${MONITORING_DIR}/logs/logrotate.conf" ]]; then
-            sudo cp "${MONITORING_DIR}/logs/logrotate.conf" /etc/logrotate.d/confhub || log_warn "Could not install logrotate config"
+        # Docker rotates container logs (logging options in the compose files);
+        # copytruncate from the old logrotate rule races with it. The rule is
+        # removed once every running container has Docker log rotation.
+        if [[ -f /etc/logrotate.d/confhub ]]; then
+            if docker ps -q | xargs -r docker inspect -f '{{index .HostConfig.LogConfig.Config "max-size"}}' | grep -qx ''; then
+                log_warn "Some containers have no Docker log rotation yet; keeping /etc/logrotate.d/confhub until they are recreated"
+            else
+                sudo rm -f /etc/logrotate.d/confhub || log_warn "Could not remove the old logrotate config"
+            fi
         fi
 
         if [[ ! -f "$ENV_FILE" ]]; then

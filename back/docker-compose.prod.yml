@@ -1,5 +1,13 @@
+# Docker rotates the json-file logs of every container (no host logrotate).
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "5"
+
 services:
   postgres:
+    logging: *default-logging
     networks:
       data:
         ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.30.51
@@ -20,6 +28,7 @@ services:
     restart: unless-stopped
 
   redis:
+    logging: *default-logging
     networks:
       data:
         ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.30.71
@@ -33,6 +42,7 @@ services:
     restart: unless-stopped
 
   redis-state:
+    logging: *default-logging
     networks:
       data:
         ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.30.72
@@ -48,6 +58,7 @@ services:
     restart: unless-stopped
 
   jaeger:
+    logging: *default-logging
     networks:
       app:
         ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.20.40
@@ -62,6 +73,7 @@ services:
     restart: unless-stopped
 
   nats:
+    logging: *default-logging
     networks:
       broker:
         ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.40.81
@@ -77,10 +89,11 @@ services:
     restart: unless-stopped
 
   minio:
+    logging: *default-logging
     networks:
       storage:
         ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.50.73
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
     command: ["server", "/data", "--console-address", ":9001"]
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
@@ -95,6 +108,7 @@ services:
     restart: unless-stopped
 
   elasticsearch:
+    logging: *default-logging
     networks:
       data:
         ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.30.74
@@ -114,6 +128,7 @@ services:
     restart: unless-stopped
 
   identity-svc:
+    logging: *default-logging
     networks:
       app:
         ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.20.21
@@ -149,8 +164,8 @@ services:
     volumes:
       - ${JWT_PRIVATE_KEY_FILE:?JWT_PRIVATE_KEY_FILE is required}:/run/secrets/jwt_private:ro
       - ${JWT_PUBLIC_KEY_FILE:?JWT_PUBLIC_KEY_FILE is required}:/run/secrets/jwt_public:ro
-      - ./secrets/mtls/ca.pem:/run/mtls-ca.pem:ro
-      - ./secrets/mtls/identity-svc:/run/mtls:ro
+      - ${CONFHUB_SECRETS_DIR:-./secrets}/mtls/ca.pem:/run/mtls-ca.pem:ro
+      - ${CONFHUB_SECRETS_DIR:-./secrets}/mtls/identity-svc:/run/mtls:ro
     group_add:
       - "0"
     depends_on:
@@ -165,6 +180,7 @@ services:
     restart: unless-stopped
 
   conference-svc:
+    logging: *default-logging
     networks:
       app:
         ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.20.22
@@ -196,8 +212,8 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - ${JWT_PUBLIC_KEY_FILE:?JWT_PUBLIC_KEY_FILE is required}:/run/secrets/jwt_public:ro
-      - ./secrets/mtls/ca.pem:/run/mtls-ca.pem:ro
-      - ./secrets/mtls/conference-svc:/run/mtls:ro
+      - ${CONFHUB_SECRETS_DIR:-./secrets}/mtls/ca.pem:/run/mtls-ca.pem:ro
+      - ${CONFHUB_SECRETS_DIR:-./secrets}/mtls/conference-svc:/run/mtls:ro
     group_add: ["0"]
     depends_on:
       postgres: { condition: service_healthy }
@@ -213,6 +229,7 @@ services:
     restart: unless-stopped
 
   application-svc:
+    logging: *default-logging
     networks:
       app:
         ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.20.23
@@ -249,8 +266,8 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - ${JWT_PUBLIC_KEY_FILE:?JWT_PUBLIC_KEY_FILE is required}:/run/secrets/jwt_public:ro
-      - ./secrets/mtls/ca.pem:/run/mtls-ca.pem:ro
-      - ./secrets/mtls/application-svc:/run/mtls:ro
+      - ${CONFHUB_SECRETS_DIR:-./secrets}/mtls/ca.pem:/run/mtls-ca.pem:ro
+      - ${CONFHUB_SECRETS_DIR:-./secrets}/mtls/application-svc:/run/mtls:ro
     group_add: ["0"]
     depends_on:
       postgres: { condition: service_healthy }
@@ -265,6 +282,7 @@ services:
     restart: unless-stopped
 
   engagement-svc:
+    logging: *default-logging
     networks:
       app:
         ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.20.24
@@ -298,8 +316,8 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - ${JWT_PUBLIC_KEY_FILE:?JWT_PUBLIC_KEY_FILE is required}:/run/secrets/jwt_public:ro
-      - ./secrets/mtls/ca.pem:/run/mtls-ca.pem:ro
-      - ./secrets/mtls/engagement-svc:/run/mtls:ro
+      - ${CONFHUB_SECRETS_DIR:-./secrets}/mtls/ca.pem:/run/mtls-ca.pem:ro
+      - ${CONFHUB_SECRETS_DIR:-./secrets}/mtls/engagement-svc:/run/mtls:ro
     group_add: ["0"]
     depends_on:
       postgres: { condition: service_healthy }
@@ -314,6 +332,7 @@ services:
     restart: unless-stopped
 
   django-admin:
+    logging: *default-logging
     networks:
       app:
         ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.20.25
@@ -341,9 +360,9 @@ services:
       SESSION_COOKIE_SECURE: ${ADMIN_COOKIE_SECURE:-false}
     group_add: ["0"]
     volumes:
-      - ./secrets/admin-auth:/run/admin-auth:rw
-      - ./secrets/mtls/ca.pem:/run/mtls-ca.pem:ro
-      - ./secrets/mtls/operations:/run/mtls:ro
+      - ${CONFHUB_SECRETS_DIR:-./secrets}/admin-auth:/run/admin-auth:rw
+      - ${CONFHUB_SECRETS_DIR:-./secrets}/mtls/ca.pem:/run/mtls-ca.pem:ro
+      - ${CONFHUB_SECRETS_DIR:-./secrets}/mtls/operations:/run/mtls:ro
     depends_on:
       postgres: { condition: service_healthy }
       redis-state: { condition: service_healthy }
@@ -358,6 +377,7 @@ services:
     restart: unless-stopped
 
   frontend:
+    logging: *default-logging
     networks:
       edge:
         ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.10.20
@@ -370,6 +390,7 @@ services:
     restart: unless-stopped
 
   nginx:
+    logging: *default-logging
     networks:
       edge:
         ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.10.10

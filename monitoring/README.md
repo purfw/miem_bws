@@ -33,7 +33,7 @@ Prometheus опрашивает `/metrics` четырёх API (`identity-svc`,
 
 ```bash
 cd /srv/confhub/monitoring
-./manage_monitoring.sh setup     # создаёт .env из .env.example, ставит logrotate
+./manage_monitoring.sh setup     # создаёт .env из .env.example
 $EDITOR .env                     # GRAFANA_PASSWORD, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 ./manage_monitoring.sh start
 ```
@@ -88,8 +88,12 @@ $EDITOR .env                     # GRAFANA_PASSWORD, TELEGRAM_BOT_TOKEN, TELEGRA
 ## Журналы
 
 Promtail читает журналы Docker-контейнеров и отправляет их в Loki.
-`logs/logrotate.conf` (ставится командой `setup` в `/etc/logrotate.d/confhub`)
-ограничивает размер json-журналов Docker на хосте.
+Loki хранит журналы 14 дней (compactor с `retention_period`).
+Размер json-журналов Docker ограничивает сам Docker: в `back/docker-compose*.yml`
+и `docker-compose.monitoring.yml` задано `max-size: 50m`, `max-file: 5`
+(действует для пересозданных контейнеров). Прежнее правило logrotate
+`/etc/logrotate.d/confhub` команда `setup` удаляет, когда у всех запущенных
+контейнеров включена ротация Docker.
 
 ## Диагностика
 

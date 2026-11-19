@@ -2,6 +2,7 @@
 set -euo pipefail
 
 PROJECT_ROOT="${PROJECT_ROOT:-/srv/confhub/back}"
+COMPOSE_PROJECT="${COMPOSE_PROJECT:-confhub}"
 ENV_FILE="$PROJECT_ROOT/.env.prod"
 LOCK_FILE="${LOCK_FILE:-/run/lock/confhub-audit-maintenance.lock}"
 
@@ -17,7 +18,7 @@ postgres_user="$(env_value POSTGRES_USER)"
 postgres_db="$(env_value POSTGRES_DB)"
 minio_user="$(env_value MINIO_ROOT_USER)"
 minio_password="$(env_value MINIO_ROOT_PASSWORD)"
-postgres_container="$(COMPOSE_PROJECT=confhub "$(dirname "$0")/pg-leader.sh")"
+postgres_container="$(COMPOSE_PROJECT="$COMPOSE_PROJECT" "$(dirname "$0")/pg-leader.sh")"
 [[ -n "$postgres_container" ]] || { echo "PostgreSQL container is not running" >&2; exit 1; }
 
 psql_cmd=(docker exec -i "$postgres_container" psql -X -v ON_ERROR_STOP=1 -U "$postgres_user" -d "$postgres_db")
@@ -60,6 +61,13 @@ if (( ${#old_partitions[@]} == 0 )); then
     exit 0
 fi
 
+# Running container of a compose service of this project.
+service_container() {
+    docker ps -q --filter status=running \
+        --filter "label=com.docker.compose.project=${COMPOSE_PROJECT}" \
+        --filter "label=com.docker.compose.service=$1" | head -n 1
+}
+
 archive_dir="$(mktemp -d /tmp/confhub-audit-archive.XXXXXX)"
 cleanup() {
     case "$archive_dir" in
@@ -68,10 +76,42 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mc_image="${MINIO_MC_IMAGE:-minio/mc:latest}"
-mc_host="http://${minio_user}:${minio_password}@minio:9000"
-docker run --rm --network container:confhub-application-svc-1 -e "MC_HOST_confhub=$mc_host" "$mc_image" \
-    mb --ignore-existing confhub/audit-archive >/dev/null
+# MinIO is reachable only from the application segment, so mc joins the
+# network namespace of application-svc.
+app_container="$(service_container application-svc)"
+[[ -n "$app_container" ]] || { echo "application-svc container is not running" >&2; exit 1; }
+# mc ships in the MinIO server image: by default use exactly the image the
+# running MinIO uses, so nothing floating is pulled.
+mc_image="${MINIO_MC_IMAGE:-}"
+if [[ -z "$mc_image" ]]; then
+    minio_container="$(service_container minio)"
+    [[ -n "$minio_container" ]] || { echo "minio container is not running; set MINIO_MC_IMAGE" >&2; exit 1; }
+    mc_image="$(docker inspect -f '{{.Image}}' "$minio_container")"
+fi
+
+# Credentials go into an mc config file in the private temp directory instead of
+# the command line or container environment (visible in ps / docker inspect).
+json_escape() {
+    local value="$1"
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    printf '%s' "$value"
+}
+mc_config_dir="$archive_dir/mc"
+(
+    umask 077
+    mkdir -p "$mc_config_dir"
+    printf '{"version":"10","aliases":{"confhub":{"url":"http://minio:9000","accessKey":"%s","secretKey":"%s","api":"s3v4","path":"auto"}}}\n' \
+        "$(json_escape "$minio_user")" "$(json_escape "$minio_password")" > "$mc_config_dir/config.json"
+)
+
+mc() {
+    docker run --rm --network "container:$app_container" \
+        -v "$mc_config_dir:/mc-config" -v "$archive_dir:/archive:ro" \
+        --entrypoint mc "$mc_image" --config-dir /mc-config "$@"
+}
+
+mc mb --ignore-existing confhub/audit-archive >/dev/null
 
 for partition in "${old_partitions[@]}"; do
     [[ "$partition" =~ ^audit_log_[0-9]{4}_[0-9]{2}$ ]] || { echo "Unsafe partition name: $partition" >&2; exit 1; }
@@ -82,11 +122,8 @@ for partition in "${old_partitions[@]}"; do
     gzip -t "$archive_dir/$archive_file"
 
     year="${partition:10:4}"
-    docker run --rm --network container:confhub-application-svc-1 -e "MC_HOST_confhub=$mc_host" \
-        -v "$archive_dir:/archive:ro" "$mc_image" \
-        cp "/archive/$archive_file" "confhub/audit-archive/$year/$archive_file" >/dev/null
-    docker run --rm --network container:confhub-application-svc-1 -e "MC_HOST_confhub=$mc_host" "$mc_image" \
-        stat "confhub/audit-archive/$year/$archive_file" >/dev/null
+    mc cp "/archive/$archive_file" "confhub/audit-archive/$year/$archive_file" >/dev/null
+    mc stat "confhub/audit-archive/$year/$archive_file" >/dev/null
 
     # Drop only this partition after verifying its archive.
     "${psql_cmd[@]}" -v partition="$partition" >/dev/null <<'SQL'

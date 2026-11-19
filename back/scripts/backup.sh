@@ -55,8 +55,17 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Optional services (mail sink, tracing) may be absent; the rest must exist.
+optional_services=" mailpit jaeger "
 for service in identity-svc conference-svc application-svc engagement-svc django-admin frontend postgres minio nats redis-state redis elasticsearch nginx mailpit jaeger; do
-    image_id="$(docker inspect -f '{{.Image}}' "${COMPOSE_PROJECT}-${service}-1")"
+    if ! image_id="$(docker inspect -f '{{.Image}}' "${COMPOSE_PROJECT}-${service}-1" 2>/dev/null)"; then
+        if [[ "$optional_services" == *" $service "* ]]; then
+            echo "Warning: optional container ${COMPOSE_PROJECT}-${service}-1 not found; its image is not pinned" >&2
+            continue
+        fi
+        echo "Container ${COMPOSE_PROJECT}-${service}-1 not found" >&2
+        exit 1
+    fi
     [[ "$image_id" =~ ^sha256:[a-f0-9]{64}$ ]] || { echo "Invalid image for $service" >&2; exit 1; }
     pin_tag="${COMPOSE_PROJECT}-backup:${timestamp}-${service}"
     docker image tag "$image_id" "$pin_tag"

@@ -44,7 +44,9 @@ def login_view(request):
     error = ""
     if request.method == "POST":
         username = request.POST.get("username", "")[:80]
-        rate_key, allowed = reserve_login_attempt(username)
+        rate_key, allowed = reserve_login_attempt(
+            username, request.META.get("REMOTE_ADDR", "")
+        )
         if not allowed:
             try:
                 record("admin.login_limited", username)

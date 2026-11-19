@@ -72,13 +72,46 @@ def test_lockout_is_not_bypassed_by_changing_forwarded_ip(credentials):
     response = client.post(
         "/admin/login/",
         {
-            "username": "another-admin",
-            "password": "wrong",
-            "otp": "000000",
+            "username": credentials.username,
+            "password": "Test-password-2026",
+            "otp": pyotp.TOTP(credentials.totp_secret).now(),
         },
         HTTP_X_FORWARDED_FOR="203.0.113.9",
     )
     assert "Слишком много попыток" in response.content.decode()
+    assert not client.session.get("admin_2fa")
+
+
+def test_unknown_username_lockout_ignores_forwarded_ip(credentials):
+    for attempt in range(6):
+        response = Client().post(
+            "/admin/login/",
+            {"username": "ghost-admin", "password": "wrong", "otp": "000000"},
+            HTTP_X_FORWARDED_FOR=f"203.0.113.{attempt}",
+        )
+    assert "Слишком много попыток" in response.content.decode()
+
+
+def test_unknown_usernames_do_not_lock_out_the_default_admin(credentials):
+    for _ in range(10):
+        response = Client().post(
+            "/admin/login/",
+            {"username": "ghost-admin", "password": "wrong", "otp": "000000"},
+        )
+    assert "Слишком много попыток" in response.content.decode()
+    assert login(Client(), credentials).status_code == 302
+
+
+def test_missing_active_superadmin_denies_login_without_error(credentials):
+    disabled = [replace(credentials, active=False)]
+    with patch("console.credentials._cached_accounts", return_value=disabled):
+        assert get_credentials() is None
+        assert not authentication.verify_credentials(
+            "ghost-admin", "wrong", "000000"
+        )
+        response = login(Client(), credentials)
+    assert response.status_code == 200
+    assert "Неверный" in response.content.decode()
 
 
 def test_logout_revokes_a_copied_session(credentials):

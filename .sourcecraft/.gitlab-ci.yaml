@@ -11,16 +11,22 @@ dast:
     DOCKER_HOST: tcp://docker:2375
     DOCKER_TLS_CERTDIR: ""
   before_script:
-    - apk add --no-cache docker-cli docker-cli-compose curl openssl nikto
+    - apk add --no-cache bash docker-cli docker-cli-compose curl openssl nikto
   script:
     - cd back
     - export DAST_PROJECT="confhub_dast_${CI_JOB_ID:-ci}"
-    - mkdir -p ../reports/security/dast secrets
+    # The production stack, built from source, with the loopback gateway on :8080.
+    - export DAST_COMPOSE="-f docker-compose.prod.yml -f docker-compose.build.yml -f docker-compose.local.yml"
+    - mkdir -p ../reports/security/dast secrets/certs
     - test ! -f .env
     - umask 077
     - openssl genpkey -algorithm Ed25519 -out secrets/jwt_ed25519.key
     - openssl pkey -in secrets/jwt_ed25519.key -pubout -out secrets/jwt_ed25519.pub
-    - chmod 644 secrets/jwt_ed25519.key secrets/jwt_ed25519.pub
+    # Services read the private key through group 0 (group_add in compose), as in deploy.sh.
+    - chgrp 0 secrets/jwt_ed25519.key
+    - chmod 640 secrets/jwt_ed25519.key
+    - chmod 644 secrets/jwt_ed25519.pub
+    - bash scripts/mtls.sh
     - |
       {
         printf 'POSTGRES_PASSWORD=%s\n' "$(openssl rand -hex 24)"
@@ -30,7 +36,19 @@ dast:
         printf 'DJANGO_SECRET_KEY=%s\n' "$(openssl rand -hex 32)"
         printf 'MINIO_ROOT_USER=confhub-dast\n'
         printf 'MINIO_ROOT_PASSWORD=%s\n' "$(openssl rand -hex 24)"
+        printf 'POSTGRES_DB=confhub\nPOSTGRES_USER=postgres\n'
+        printf 'MINIO_BUCKET=application-files\nMAX_FILE_SIZE_BYTES=20971520\n'
+        printf 'JWT_ISSUER=confhub\nACCESS_TOKEN_TTL=15m\nREFRESH_TOKEN_TTL=168h\n'
+        printf 'JWT_PRIVATE_KEY_FILE=./secrets/jwt_ed25519.key\nJWT_PUBLIC_KEY_FILE=./secrets/jwt_ed25519.pub\n'
+        printf 'TLS_CERTS_DIR=./secrets/certs\nBASE_URL=http://docker:8080\n'
+        printf 'SMTP_HOST=mailpit\nSMTP_PORT=1025\nSMTP_FROM=noreply@confhub.example.com\n'
+        printf 'SUPPORT_EMAIL=support@confhub.example.com\nALLOWED_HOSTS=docker,localhost,127.0.0.1\n'
+        printf 'CI_REGISTRY_IMAGE=confhub-dast\nIMAGE_TAG=ci\n'
       } > .env
+    - docker compose -p "$DAST_PROJECT" $DAST_COMPOSE config -q
+    # Jaeger runs as uid 10001 and needs a writable trace volume (as in lab.sh).
+    - docker volume create "${DAST_PROJECT}_jaegerdata"
+    - docker run --rm --network none -v "${DAST_PROJECT}_jaegerdata:/traces" alpine:3.21 chown 10001:10001 /traces
     - docker build -t confhub-dast-admin services/django-admin
     - |
       docker run --rm --user 0:0 --entrypoint python \
@@ -42,14 +60,14 @@ dast:
       value = Credentials("dast-admin", hasher.encode(secrets.token_urlsafe(32), hasher.salt()), pyotp.random_base32(), str(uuid.uuid4()), str(uuid.uuid4()))
       save_credentials(Path("/setup/admin-auth"), value)
       '
-    - docker compose -p "$DAST_PROJECT" -f docker-compose.yml -f docker-compose.local.yml up -d --build --wait --wait-timeout 240
+    - docker compose -p "$DAST_PROJECT" $DAST_COMPOSE up -d --build --wait --wait-timeout 240
     - |
       for target in identity-svc:8081 conference-svc:8082 application-svc:8083 engagement-svc:8084; do
         service=${target%:*}
         port=${target#*:}
         ready=false
         for attempt in $(seq 1 30); do
-          if docker compose -p "$DAST_PROJECT" -f docker-compose.yml -f docker-compose.local.yml exec -T "$service" wget -qO- "http://127.0.0.1:$port/readyz"; then
+          if docker compose -p "$DAST_PROJECT" $DAST_COMPOSE exec -T "$service" wget -qO- "http://127.0.0.1:$port/readyz"; then
             ready=true
             break
           fi
@@ -62,7 +80,8 @@ dast:
   after_script:
     - cd back
     - export DAST_PROJECT="confhub_dast_${CI_JOB_ID:-ci}"
-    - docker compose -p "$DAST_PROJECT" -f docker-compose.yml -f docker-compose.local.yml down -v --remove-orphans
+    - export DAST_COMPOSE="-f docker-compose.prod.yml -f docker-compose.build.yml -f docker-compose.local.yml"
+    - docker compose -p "$DAST_PROJECT" $DAST_COMPOSE down -v --remove-orphans
   artifacts:
     when: always
     paths:

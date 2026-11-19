@@ -17,6 +17,12 @@ workflows:
     tasks:
       - name: go-build
         cubes:
+          - name: build-shared
+            image: docker.io/library/golang:1.27.3-alpine
+            script:
+              - apk add --no-cache git
+              - cd back/shared
+              - go build ./...
           - name: build-identity-svc
             image: docker.io/library/golang:1.27.3-alpine
             script:
@@ -43,6 +49,12 @@ workflows:
               - go build ./...
       - name: go-lint
         cubes:
+          - name: vet-shared
+            image: docker.io/library/golang:1.27.3-alpine
+            script:
+              - apk add --no-cache git
+              - cd back/shared
+              - go vet ./...
           - name: vet-identity-svc
             image: docker.io/library/golang:1.27.3-alpine
             script:
@@ -69,6 +81,12 @@ workflows:
               - go vet ./...
       - name: go-test
         cubes:
+          - name: test-shared
+            image: docker.io/library/golang:1.27.3-alpine
+            script:
+              - apk add --no-cache git
+              - cd back/shared
+              - go test ./... -covermode=atomic
           - name: test-identity-svc
             image: docker.io/library/golang:1.27.3-alpine
             script:
@@ -102,13 +120,13 @@ workflows:
           - name: django-lint
             image: docker.io/library/python:3.12-alpine
             script:
-              - pip install -r back/services/django-admin/requirements.txt
+              - pip install -r back/services/django-admin/requirements-dev.txt
               - ruff check back/services/django-admin
               - flake8 back/services/django-admin
           - name: django-test
             image: docker.io/library/python:3.12-alpine
             script:
-              - pip install -r back/services/django-admin/requirements.txt
+              - pip install -r back/services/django-admin/requirements-dev.txt
               - pytest -q back/services/django-admin
       - name: react
         cubes:
@@ -128,24 +146,25 @@ workflows:
         cubes:
           - name: secret-scan
             image:
-              name: zricethezav/gitleaks:latest
+              name: zricethezav/gitleaks:v8.21.2
               entrypoint: ""
             script:
               - gitleaks git --exit-code 1
           - name: sast
-            image: returntocorp/semgrep:latest
+            image: returntocorp/semgrep:1.95.0
             script:
               - semgrep scan --config=auto --error .
           - name: dependency-scan
             image: docker.io/library/python:3.12-alpine
             script:
               - apk add --no-cache go nodejs npm git
-              - pip install -r back/services/django-admin/requirements.txt
-              - go install golang.org/x/vuln/cmd/govulncheck@latest
+              - pip install -r back/services/django-admin/requirements-dev.txt
+              - go install golang.org/x/vuln/cmd/govulncheck@v1.1.3
+              - export PATH="$PATH:$(go env GOPATH)/bin"
               - |
                 status=0
-                for svc in identity-svc conference-svc application-svc engagement-svc; do
-                  (cd "back/services/${svc}" && govulncheck ./...) || status=1
+                for module in shared services/identity-svc services/conference-svc services/application-svc services/engagement-svc; do
+                  (cd "back/${module}" && govulncheck ./...) || status=1
                 done
                 pip-audit -r back/services/django-admin/requirements.txt || status=1
                 if [ -d "front" ]; then

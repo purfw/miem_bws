@@ -1,5 +1,13 @@
+# Docker rotates the json-file logs itself (no copytruncate races).
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "5"
+
 services:
   loki:
+    logging: *default-logging
     image: grafana/loki:3.2.0
     container_name: loki
     restart: unless-stopped
@@ -13,6 +21,7 @@ services:
       - monitoring
 
   promtail:
+    logging: *default-logging
     image: grafana/promtail:3.2.0
     container_name: promtail
     restart: unless-stopped
@@ -20,6 +29,7 @@ services:
       - ./promtail/config.yml:/etc/promtail/config.yaml:ro
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - promtail_positions:/var/lib/promtail
     command: -config.file=/etc/promtail/config.yaml
     depends_on:
       - loki
@@ -27,6 +37,7 @@ services:
       - monitoring
 
   prometheus:
+    logging: *default-logging
     image: prom/prometheus:v2.54.1
     container_name: prometheus
     restart: unless-stopped
@@ -35,14 +46,12 @@ services:
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
-      - ./prometheus/rules:/etc/prometheus/rules:ro
       - prometheus_data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
       - '--storage.tsdb.retention.time=15d'
       - '--web.enable-lifecycle'
-      - '--web.enable-admin-api'
     networks:
       monitoring:
       # Статический адрес в сегменте app: на него ссылается правило межсетевого экрана.
@@ -50,6 +59,7 @@ services:
         ipv4_address: ${CONFHUB_NET_PREFIX:-172.28}.20.90
 
   alertmanager:
+    logging: *default-logging
     image: prom/alertmanager:v0.27.0
     container_name: alertmanager
     restart: unless-stopped
@@ -65,6 +75,7 @@ services:
       - monitoring
 
   node-exporter:
+    logging: *default-logging
     image: prom/node-exporter:v1.8.2
     container_name: node-exporter
     restart: unless-stopped
@@ -83,6 +94,7 @@ services:
       - monitoring
 
   cadvisor:
+    logging: *default-logging
     image: gcr.io/cadvisor/cadvisor:v0.50.0
     container_name: cadvisor
     restart: unless-stopped
@@ -103,6 +115,7 @@ services:
       - monitoring
 
   grafana:
+    logging: *default-logging
     image: grafana/grafana:11.2.0
     container_name: grafana
     restart: unless-stopped
@@ -113,7 +126,6 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:?Set GRAFANA_PASSWORD in monitoring/.env}
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_SERVER_ROOT_URL=http://localhost:3000
-      - GF_INSTALL_PLUGINS=grafana-piechart-panel
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
@@ -125,14 +137,15 @@ services:
       - monitoring
 
   alert-bot:
+    logging: *default-logging
     build:
       context: ./alert-bot
       dockerfile: Dockerfile
     container_name: alert-bot
     restart: unless-stopped
     environment:
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
       - ALERTMANAGER_URL=http://alertmanager:9093
       - PORT=8080
     ports:
@@ -154,3 +167,4 @@ volumes:
   grafana_data:
   alertmanager_data:
   loki_data:
+  promtail_positions:

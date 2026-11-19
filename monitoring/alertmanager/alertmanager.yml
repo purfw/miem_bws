@@ -8,14 +8,14 @@ route:
   repeat_interval: 12h
   receiver: 'telegram'
   routes:
-    - match:
-        severity: critical
+    - matchers:
+        - severity = "critical"
       receiver: 'telegram'
       group_wait: 0s
       repeat_interval: 1h
-    
-    - match:
-        severity: warning
+
+    - matchers:
+        - severity = "warning"
       receiver: 'telegram'
       group_wait: 30s
       repeat_interval: 4h
@@ -28,7 +28,7 @@ receivers:
 
 inhibit_rules:
   - equal: ['alertname', 'instance']
-    source_match:
-      severity: 'critical'
-    target_match:
-      severity: 'warning'
+    source_matchers:
+      - severity = "critical"
+    target_matchers:
+      - severity = "warning"

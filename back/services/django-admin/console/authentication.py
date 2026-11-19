@@ -1,3 +1,4 @@
+import hashlib
 import hmac
 import re
 import time
@@ -22,9 +23,24 @@ def authenticated(request):
     return valid
 
 
-def reserve_login_attempt(username=None):
-    credentials = get_credentials(username) or get_credentials()
-    key = f"admin-login:{credentials.version}"
+def reserve_login_attempt(username=None, client_ip=""):
+    """Counts a login attempt; returns (cache key, allowed).
+
+    Attempts for an existing active account share its counter. Attempts for
+    unknown usernames are counted separately per username and client address,
+    so guessing names never locks out a real administrator.
+    """
+    if username is None:
+        account = get_credentials()
+    else:
+        account = get_credentials(username)
+    if account is not None:
+        key = f"admin-login:{account.version}"
+    else:
+        digest = hashlib.sha256(
+            f"{username or ''}\0{client_ip}".encode()
+        ).hexdigest()[:32]
+        key = f"admin-login-unknown:{digest}"
     cache.add(key, 0, timeout=300)
     try:
         attempts = cache.incr(key)
@@ -36,7 +52,11 @@ def reserve_login_attempt(username=None):
 
 def verify_credentials(username, password, otp):
     account = get_credentials(username)
+    # Unknown usernames are checked against the default account so the
+    # response time does not reveal which usernames exist.
     credentials = account or get_credentials()
+    if credentials is None:
+        return False
     username_ok = hmac.compare_digest(
         username.encode(), credentials.username.encode()
     )

@@ -8,6 +8,7 @@ vendor/
 .env.prod
 .env.lab
 secrets/
+secrets-lab/
 
 # Editor / OS
 .idea/

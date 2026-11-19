@@ -7,7 +7,15 @@
 # При деплое включается флагом CONFHUB_HA=1 (scripts/deploy.sh). Данные одиночных
 # PostgreSQL и NATS переносятся через копию: порядок описан в docs/RELIABILITY.md.
 
+# Same json-file rotation as docker-compose.prod.yml (anchors do not cross files).
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "5"
+
 x-etcd: &etcd
+  logging: *default-logging
   image: quay.io/coreos/etcd:v3.5.21
   healthcheck:
     test: ["CMD", "etcdctl", "endpoint", "health"]
@@ -25,6 +33,7 @@ x-etcd-env: &etcd-env
   ETCD_INITIAL_CLUSTER_TOKEN: confhub-etcd
 
 x-patroni: &patroni
+  logging: *default-logging
   image: !reset null
   build:
     context: ./postgres-ha
@@ -52,6 +61,7 @@ x-patroni-env: &patroni-env
   SVC_DB_PASSWORD: ${SVC_DB_PASSWORD:?SVC_DB_PASSWORD is required}
 
 x-nats: &nats
+  logging: *default-logging
   image: nats:2.10-alpine
   healthcheck:
     test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8222/healthz > /dev/null || exit 1"]

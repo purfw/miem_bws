@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Отдельный стенд для демонстраций отказов: тот же compose, что и в production,
 # плюс HA-оверлей, но свой проект, свои тома, свои подсети и свой .env.lab.
-# Рабочий стенд (проект confhub) не затрагивается. CA для mTLS и ключ JWT
-# общие с рабочим стендом (secrets/mtls, secrets/jwt_ed25519.key).
+# Рабочий стенд (проект confhub) не затрагивается. Секреты стенда (CA для mTLS,
+# ключ JWT, admin-auth, TLS) лежат отдельно в secrets-lab/: токены и
+# сертификаты стенда не принимаются рабочим стендом.
 #
 #   lab.sh up            собрать и запустить стенд, применить межсетевой экран
 #   lab.sh down          остановить стенд (тома сохраняются)
@@ -16,21 +17,30 @@ export CONFHUB_NET_PREFIX="${CONFHUB_NET_PREFIX:-172.29}"
 export CONFHUB_BR_PREFIX="${CONFHUB_BR_PREFIX:-chl}"
 export HOST_PROXY_PORT="${HOST_PROXY_PORT:-18081}"
 export JAEGER_UI_PORT="${JAEGER_UI_PORT:-16687}"
-export MTLS_CERT_ROOT=secrets/mtls
+SECRETS_DIR=secrets-lab
+# Подставляется в пути томов docker-compose.prod.yml вместо ./secrets.
+export CONFHUB_SECRETS_DIR="./${SECRETS_DIR}"
+export MTLS_CERT_ROOT="${SECRETS_DIR}/mtls"
 ENV_FILE=.env.lab
 COMPOSE=(docker compose -p "$COMPOSE_PROJECT" --env-file "$ENV_FILE"
     -f docker-compose.prod.yml -f docker-compose.build.yml -f docker-compose.host.yml -f docker-compose.ha.yml)
 
 prepare() {
+    mkdir -p "$SECRETS_DIR"
+    chmod 700 "$SECRETS_DIR"
     bash scripts/mtls.sh
-    if [[ ! -f secrets/jwt_ed25519.key ]]; then
-        openssl genpkey -algorithm ED25519 -out secrets/jwt_ed25519.key
-        openssl pkey -in secrets/jwt_ed25519.key -pubout -out secrets/jwt_ed25519.pub
+    if [[ ! -f "$SECRETS_DIR/jwt_ed25519.key" ]]; then
+        ( umask 077; openssl genpkey -algorithm ED25519 -out "$SECRETS_DIR/jwt_ed25519.key" )
+        openssl pkey -in "$SECRETS_DIR/jwt_ed25519.key" -pubout -out "$SECRETS_DIR/jwt_ed25519.pub"
     fi
-    chgrp 0 secrets/jwt_ed25519.key
-    chmod 640 secrets/jwt_ed25519.key
-    chmod 644 secrets/jwt_ed25519.pub
-    mkdir -p secrets/admin-auth secrets/certs
+    chgrp 0 "$SECRETS_DIR/jwt_ed25519.key"
+    chmod 640 "$SECRETS_DIR/jwt_ed25519.key"
+    chmod 644 "$SECRETS_DIR/jwt_ed25519.pub"
+    mkdir -p "$SECRETS_DIR/admin-auth" "$SECRETS_DIR/certs"
+    # .env.lab, созданный до разделения секретов, указывал на общие ключи.
+    if [[ -f "$ENV_FILE" ]]; then
+        sed -i -E "s#^(JWT_PRIVATE_KEY_FILE|JWT_PUBLIC_KEY_FILE|TLS_CERTS_DIR)=\./secrets/#\1=./${SECRETS_DIR}/#" "$ENV_FILE"
+    fi
     if [[ ! -f "$ENV_FILE" ]]; then
         rand() { openssl rand -hex "${1:-24}"; }
         ( umask 077; cat > "$ENV_FILE" <<ENV
@@ -48,9 +58,9 @@ MAX_FILE_SIZE_BYTES=20971520
 JWT_ISSUER=confhub
 ACCESS_TOKEN_TTL=15m
 REFRESH_TOKEN_TTL=168h
-JWT_PRIVATE_KEY_FILE=./secrets/jwt_ed25519.key
-JWT_PUBLIC_KEY_FILE=./secrets/jwt_ed25519.pub
-TLS_CERTS_DIR=./secrets/certs
+JWT_PRIVATE_KEY_FILE=./${SECRETS_DIR}/jwt_ed25519.key
+JWT_PUBLIC_KEY_FILE=./${SECRETS_DIR}/jwt_ed25519.pub
+TLS_CERTS_DIR=./${SECRETS_DIR}/certs
 BASE_URL=http://127.0.0.1:${HOST_PROXY_PORT}
 LOG_LEVEL=info
 SMTP_HOST=mailpit
@@ -83,5 +93,5 @@ case "${1:-}" in
         "${COMPOSE[@]}" down -v
         ;;
     compose) shift; "${COMPOSE[@]}" "$@" ;;
-    *) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
+    *) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
 esac
