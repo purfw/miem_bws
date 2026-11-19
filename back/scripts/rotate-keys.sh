@@ -18,7 +18,21 @@ fi
 exec 9>"$LOCK_FILE"
 flock -n 9 || { echo "ConfHub key rotation is already running" >&2; exit 1; }
 
-COMPOSE=(docker compose -p confhub --env-file "$ENV_FILE" -f docker-compose.prod.yml -f docker-compose.build.yml)
+# Recreate services with the same Compose files deploy.sh used (host and HA
+# overlays included); otherwise the services would fall back to single-node
+# PostgreSQL and NATS.
+mapfile -t config_sets < <(docker ps --filter label=com.docker.compose.project=confhub \
+    --format '{{.Label "com.docker.compose.project.config_files"}}' | sort -u)
+if (( ${#config_sets[@]} != 1 )) || [[ -z "${config_sets[0]}" ]]; then
+    echo "Cannot determine Compose files of the running confhub project" >&2
+    exit 1
+fi
+COMPOSE=(docker compose -p confhub --env-file "$ENV_FILE")
+IFS=, read -ra config_files <<< "${config_sets[0]}"
+for file in "${config_files[@]}"; do
+    [[ -f "$file" ]] || { echo "Compose file $file is missing" >&2; exit 1; }
+    COMPOSE+=(-f "$file")
+done
 SERVICES=(identity-svc conference-svc application-svc engagement-svc django-admin)
 work_dir="$(mktemp -d "$SECRETS_DIR/.rotation.XXXXXX")"
 cp "$ENV_FILE" "$work_dir/env.backup"
@@ -63,7 +77,7 @@ rollback() {
     chgrp 0 "$SECRETS_DIR/jwt_ed25519.key"
     chmod 640 "$SECRETS_DIR/jwt_ed25519.key"
     chmod 644 "$SECRETS_DIR/jwt_ed25519.pub"
-	"${COMPOSE[@]}" up -d --no-deps --force-recreate "${SERVICES[@]}"
+    "${COMPOSE[@]}" up -d --no-deps --force-recreate "${SERVICES[@]}"
     echo "Key rotation failed and previous keys were restored" >&2
     exit "$status"
 }
@@ -74,32 +88,33 @@ bash scripts/mtls.sh
 set_env SERVICE_TOKEN_SECRET "$(openssl rand -hex 32)"
 
 if [[ "$rotation_mode" == --all ]]; then
-legacy_key="$(env_value JOIN_URL_ENCRYPTION_KEY)"
-keyring="$(env_value JOIN_URL_ENCRYPTION_KEYS)"
-active_version="$(env_value JOIN_URL_ACTIVE_KEY_VERSION)"
-active_version="${active_version:-1}"
-if [[ ! "$active_version" =~ ^[0-9]+$ ]] || (( active_version < 1 || active_version >= 32767 )); then
-    echo "Invalid JOIN_URL_ACTIVE_KEY_VERSION" >&2
-    exit 1
-fi
-if [[ -z "$keyring" ]]; then
-    [[ -n "$legacy_key" ]] || { echo "JOIN_URL_ENCRYPTION_KEY is empty" >&2; exit 1; }
-    keyring="1:${legacy_key}"
-fi
-new_version=$((active_version + 1))
-new_join_key="$(openssl rand -base64 32 | tr -d '\n')"
-set_env JOIN_URL_ENCRYPTION_KEYS "${keyring},${new_version}:${new_join_key}"
-set_env JOIN_URL_ACTIVE_KEY_VERSION "$new_version"
+    legacy_key="$(env_value JOIN_URL_ENCRYPTION_KEY)"
+    keyring="$(env_value JOIN_URL_ENCRYPTION_KEYS)"
+    active_version="$(env_value JOIN_URL_ACTIVE_KEY_VERSION)"
+    active_version="${active_version:-1}"
+    # `false` rather than `exit` so the ERR trap restores keys and restarts services.
+    if [[ ! "$active_version" =~ ^[0-9]+$ ]] || (( active_version < 1 || active_version >= 32767 )); then
+        echo "Invalid JOIN_URL_ACTIVE_KEY_VERSION" >&2
+        false
+    fi
+    if [[ -z "$keyring" ]]; then
+        [[ -n "$legacy_key" ]] || { echo "JOIN_URL_ENCRYPTION_KEY is empty" >&2; false; }
+        keyring="1:${legacy_key}"
+    fi
+    new_version=$((active_version + 1))
+    new_join_key="$(openssl rand -base64 32 | tr -d '\n')"
+    set_env JOIN_URL_ENCRYPTION_KEYS "${keyring},${new_version}:${new_join_key}"
+    set_env JOIN_URL_ACTIVE_KEY_VERSION "$new_version"
 
-openssl genpkey -algorithm ED25519 -out "$work_dir/jwt_ed25519.key"
-openssl pkey -in "$work_dir/jwt_ed25519.key" -pubout -out "$work_dir/jwt_ed25519.pub"
-mkdir -p "$SECRETS_DIR/jwt-history"
-cp "$SECRETS_DIR/jwt_ed25519.pub" "$SECRETS_DIR/jwt-history/jwt-$(date -u +%Y%m%dT%H%M%SZ).pub"
-mv "$work_dir/jwt_ed25519.key" "$SECRETS_DIR/jwt_ed25519.key"
-mv "$work_dir/jwt_ed25519.pub" "$SECRETS_DIR/jwt_ed25519.pub"
-chgrp 0 "$SECRETS_DIR/jwt_ed25519.key"
-chmod 640 "$SECRETS_DIR/jwt_ed25519.key"
-chmod 644 "$SECRETS_DIR/jwt_ed25519.pub"
+    openssl genpkey -algorithm ED25519 -out "$work_dir/jwt_ed25519.key"
+    openssl pkey -in "$work_dir/jwt_ed25519.key" -pubout -out "$work_dir/jwt_ed25519.pub"
+    mkdir -p "$SECRETS_DIR/jwt-history"
+    cp "$SECRETS_DIR/jwt_ed25519.pub" "$SECRETS_DIR/jwt-history/jwt-$(date -u +%Y%m%dT%H%M%SZ).pub"
+    mv "$work_dir/jwt_ed25519.key" "$SECRETS_DIR/jwt_ed25519.key"
+    mv "$work_dir/jwt_ed25519.pub" "$SECRETS_DIR/jwt_ed25519.pub"
+    chgrp 0 "$SECRETS_DIR/jwt_ed25519.key"
+    chmod 640 "$SECRETS_DIR/jwt_ed25519.key"
+    chmod 644 "$SECRETS_DIR/jwt_ed25519.pub"
 fi
 
 "${COMPOSE[@]}" config >/dev/null

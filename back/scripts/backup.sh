@@ -94,6 +94,9 @@ tar -czf "${work_dir}/deployment-config.tar.gz" \
     back/docker-compose.prod.yml \
     back/docker-compose.build.yml \
     back/docker-compose.host.yml \
+    back/docker-compose.ha.yml \
+    back/postgres-ha \
+    back/firewall \
     back/nginx \
     back/observability \
     back/systemd \
