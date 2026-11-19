@@ -9,8 +9,13 @@ import { Pagination } from "../Pagination/Pagination";
 import styles from "./CatalogView.module.css";
 import { tr } from "../../../i18n/runtime";
 
-type Tab = "all" | "active" | "upcoming" | "completed";
+const TABS = ["all", "active", "upcoming", "completed"] as const;
+type Tab = (typeof TABS)[number];
 const emptyFilters: FilterState = { topics: [], formats: [], from: "", to: "", city: "" };
+
+function parseTab(value: string | null): Tab {
+  return TABS.find((item) => item === value) ?? "all";
+}
 
 function list(value: string | null): string[] {
   return value ? value.split(",").filter(Boolean) : [];
@@ -30,7 +35,7 @@ export function CatalogView() {
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
   const searchString = params.toString();
-  const tab = (params.get("tab") as Tab | null) ?? "all";
+  const tab = parseTab(params.get("tab"));
   const page = Math.max(1, Number(params.get("page")) || 1);
   const sort = params.get("sort") ?? "start_date";
   const filters: FilterState = {
@@ -43,6 +48,7 @@ export function CatalogView() {
 
   useEffect(() => {
     const controller = new AbortController();
+    let clamped = false;
     const query = new URLSearchParams(searchString);
     query.set("page", String(page));
     query.set("per_page", "9");
@@ -54,14 +60,29 @@ export function CatalogView() {
       query.set("tab", tab === "completed" ? "past" : tab);
     }
     request<ConferenceListResponse>(`/conferences?${query.toString()}`, { signal: controller.signal })
-      .then(setResult)
+      .then((response) => {
+        if (controller.signal.aborted) return;
+        const lastPage = response.pagination.total_pages;
+        if (lastPage >= 1 && page > lastPage) {
+          // Out-of-range page in the URL: clamp it; the effect reruns and loads the last page.
+          clamped = true;
+          setParams((current) => {
+            const next = new URLSearchParams(current);
+            if (lastPage === 1) next.delete("page");
+            else next.set("page", String(lastPage));
+            return next;
+          }, { replace: true });
+          return;
+        }
+        setResult(response);
+      })
       .catch((reason: unknown) => {
         if (reason instanceof DOMException && reason.name === "AbortError") return;
         setError(readableError(reason));
       })
-      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+      .finally(() => { if (!controller.signal.aborted && !clamped) setLoading(false); });
     return () => controller.abort();
-  }, [request, searchString, page, tab, retry]);
+  }, [request, searchString, page, tab, retry, setParams]);
 
   function mutate(changes: Record<string, string | null>) {
     const next = new URLSearchParams(params);

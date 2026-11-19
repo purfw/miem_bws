@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { useAuth } from "../../auth/useAuth";
 import { readableError } from "../../api/client";
+import { safeRedirectUrl } from "../../api/safeUrl";
 import { Button } from "../../components/ui/Button/Button";
 import { ButtonLink } from "../../components/ui/Button/ButtonLink";
 import { dateLocale, tr } from "../../i18n/runtime";
@@ -35,7 +36,7 @@ export function ProfileDocuments() {
       const result = await request<{ url: string }>(
         `/documents/${id}/download`,
       );
-      window.location.assign(result.url);
+      window.location.assign(safeRedirectUrl(result.url));
     } catch (reason) {
       setError(readableError(reason));
     } finally {

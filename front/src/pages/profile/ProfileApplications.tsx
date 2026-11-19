@@ -5,6 +5,7 @@ import { readableError } from "../../api/client";
 import { Button } from "../../components/ui/Button/Button";
 import { ButtonLink } from "../../components/ui/Button/ButtonLink";
 import { dateLocale, tr } from "../../i18n/runtime";
+import { todayLocalISO } from "../../i18n/dates";
 import type {
   Application,
   PaginationData,
@@ -177,8 +178,7 @@ export function ProfileApplications() {
               item.cancellation_count < 3 &&
               Boolean(
                 item.conference?.start_date &&
-                  item.conference.start_date >
-                    new Date().toISOString().slice(0, 10),
+                  item.conference.start_date > todayLocalISO(),
               );
             return (
               <li

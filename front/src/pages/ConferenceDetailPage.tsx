@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { ApiError, readableError } from "../api/client";
+import { safeRedirectUrl } from "../api/safeUrl";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/ui/Button/Button";
 import { ButtonLink } from "../components/ui/Button/ButtonLink";
@@ -10,12 +11,13 @@ import layout from "./ConferenceDetailPage.module.css";
 import type { ConferenceDetail, Registration, Subscription } from "../types/conference";
 import styles from "./Page.module.css";
 import { dateLocale, localize, tr } from "../i18n/runtime";
+import { parseDate, todayLocalISO } from "../i18n/dates";
 
 type DetailTab = "about" | "program" | "organizers" | "partners";
 
 function dateRange(start: string, end: string) {
-  const from = new Date(start);
-  const to = new Date(end);
+  const from = parseDate(start);
+  const to = parseDate(end);
   return `${from.toLocaleDateString(dateLocale())} — ${to.toLocaleDateString(dateLocale())}`;
 }
 
@@ -175,7 +177,7 @@ function ConferenceDetails() {
     setError("");
     try {
       const result = await request<{ url: string }>(`/sessions/${sessionId}/join`);
-      window.location.assign(result.url);
+      window.location.assign(safeRedirectUrl(result.url));
     } catch (reason) {
       setError(readableError(reason));
     } finally {
@@ -189,7 +191,7 @@ function ConferenceDetails() {
   const currentRegistration = user && registration?.conference_id === conference.id ? registration : null;
   const activeRegistration = currentRegistration?.status !== "cancelled" ? currentRegistration : null;
   const cancellationLimitReached = (currentRegistration?.cancellation_count ?? 0) >= 3;
-  const canCancel = Boolean(activeRegistration) && !cancellationLimitReached && conference.start_date > new Date().toISOString().slice(0, 10);
+  const canCancel = Boolean(activeRegistration) && !cancellationLimitReached && conference.start_date > todayLocalISO();
 
   const tabs: Array<{ id: DetailTab; label: string }> = [
     { id: "about", label: tr("О конференции", "About") },
@@ -221,7 +223,7 @@ function ConferenceDetails() {
           {authLoading && conference.registration_open && !activeRegistration && <Button disabled>{tr("Проверяем сессию…", "Checking your session…")}</Button>}
           {!conference.registration_open && !activeRegistration && <Button disabled>{tr("Регистрация закрыта", "Registration closed")}</Button>}
           {!user && !authLoading && conference.registration_open && <ButtonLink variant="primary" to="/register" state={{ from: location.pathname }}>{tr("Зарегистрироваться", "Register")}</ButtonLink>}
-          {user && conference.registration_open && !activeRegistration && <Button aria-label={tr("Зарегистрироваться на мероприятие", "Register for the event")} onClick={registerForConference} disabled={registrationBusy || registrationLoading || Boolean(registrationError) || cancellationLimitReached}>{registrationLoading ? tr("Проверяем участие…", "Checking participation…") : registrationBusy ? tr("Регистрируем…", "Registering…") : <><span className={layout.fullLabel}>{tr("Зарегистрироваться на мероприятие", "Register for the event")}</span><span className={layout.shortLabel}>{tr("Зарегистрироваться", "Register for the event")}</span></>}</Button>}
+          {user && conference.registration_open && !activeRegistration && <Button aria-label={tr("Зарегистрироваться на мероприятие", "Register for the event")} onClick={registerForConference} disabled={registrationBusy || registrationLoading || Boolean(registrationError) || cancellationLimitReached}>{registrationLoading ? tr("Проверяем участие…", "Checking participation…") : registrationBusy ? tr("Регистрируем…", "Registering…") : <><span className={layout.fullLabel}>{tr("Зарегистрироваться на мероприятие", "Register for the event")}</span><span className={layout.shortLabel}>{tr("Зарегистрироваться", "Register")}</span></>}</Button>}
           {activeRegistration?.status === "confirmed" && <Button disabled>{tr("✓ Вы зарегистрированы", "✓ Registered")}</Button>}
           {activeRegistration?.status === "waitlisted" && <Button disabled>{tr("Очередь: место", "Waitlist position:")} {activeRegistration.waitlist_position}</Button>}
           {conference.registration_open && <ButtonLink to={`/conferences/${conference.id}/apply`}>{tr("Подать доклад", "Submit a presentation")}</ButtonLink>}
@@ -266,7 +268,7 @@ function ConferenceDetails() {
           </>
         )}
         {tab === "program" && (
-          <><h2>{tr("Программа", "Programme")}</h2>{conference.schedule.length ? <ul className={styles.list}>{conference.schedule.map((slot) => <li className={styles.listItem} key={slot.id}><strong>{slot.start_time.slice(0, 5)}–{slot.end_time.slice(0, 5)} · {slot.title}</strong><small>{new Date(slot.slot_date).toLocaleDateString(dateLocale())}{slot.room ? ` · ${slot.room}` : ""}{slot.speaker_name ? ` · ${slot.speaker_name}` : ""}</small>{activeRegistration?.status === "confirmed" && <Button variant="secondary" disabled={joinBusy === slot.id} onClick={() => joinSession(slot.id)}>{joinBusy === slot.id ? tr("Проверяем доступ…", "Checking access…") : tr("Подключиться", "Join session")}</Button>}</li>)}</ul> : <p>{tr("Программа ещё не опубликована.", "The programme has not been published yet.")}</p>}</>
+          <><h2>{tr("Программа", "Programme")}</h2>{conference.schedule.length ? <ul className={styles.list}>{conference.schedule.map((slot) => <li className={styles.listItem} key={slot.id}><strong>{slot.start_time.slice(0, 5)}–{slot.end_time.slice(0, 5)} · {slot.title}</strong><small>{parseDate(slot.slot_date).toLocaleDateString(dateLocale())}{slot.room ? ` · ${slot.room}` : ""}{slot.speaker_name ? ` · ${slot.speaker_name}` : ""}</small>{activeRegistration?.status === "confirmed" && <Button variant="secondary" disabled={joinBusy === slot.id} onClick={() => joinSession(slot.id)}>{joinBusy === slot.id ? tr("Проверяем доступ…", "Checking access…") : tr("Подключиться", "Join session")}</Button>}</li>)}</ul> : <p>{tr("Программа ещё не опубликована.", "The programme has not been published yet.")}</p>}</>
         )}
         {tab === "organizers" && (
           <><h2>{tr("Организационный комитет", "Organizing committee")}</h2>{conference.organizers.length ? <ul className={styles.list}>{conference.organizers.map((person) => <li className={styles.listItem} key={person.id}><strong>{person.name}</strong><small>{[person.job_title, person.affiliation].filter(Boolean).join(" · ")}</small></li>)}</ul> : <p>{tr("Состав оргкомитета ещё не опубликован.", "The organizing committee has not been published yet.")}</p>}<h2>{tr("Программный комитет", "Programme committee")}</h2>{conference.program_committee.length ? <ul className={styles.list}>{conference.program_committee.map((person) => <li className={styles.listItem} key={person.id}><strong>{person.name}</strong><small>{person.affiliation}</small></li>)}</ul> : <p>{tr("Состав программного комитета ещё не опубликован.", "The programme committee has not been published yet.")}</p>}</>

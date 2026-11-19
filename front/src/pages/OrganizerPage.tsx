@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { readableError } from "../api/client";
 import { useAuth } from "../auth/useAuth";
@@ -6,6 +6,7 @@ import { Button } from "../components/ui/Button/Button";
 import type { Conference, ScheduleSlot } from "../types/conference";
 import styles from "./Page.module.css";
 import { dateLocale, localize, tr } from "../i18n/runtime";
+import { parseDate } from "../i18n/dates";
 
 const minimumStartDate = "2027-01-01";
 
@@ -17,6 +18,14 @@ function statusLabel(status: Conference["status"]): string {
   return tr(...labels[status]);
 }
 
+function isHttpsUrl(value: string): boolean {
+  try {
+    return new URL(value).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 function localDateTime(value: string): string {
   const date = new Date(value);
   return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
@@ -26,12 +35,14 @@ export function OrganizerPage() {
   const { user, request } = useAuth();
   const navigate = useNavigate();
   const [items, setItems] = useState<Conference[]>([]);
+  const [itemsLoading, setItemsLoading] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [editingId, setEditingId] = useState("");
   const [form, setForm] = useState({ title: "", title_en: "", slug: "", description: "", description_en: "", format: "offline", start_date: "", end_date: "", registration_deadline: "", max_participants: "", city: "", location: "", topics: "" });
   const [sessions, setSessions] = useState<ScheduleSlot[]>([]);
+  const sessionsController = useRef<AbortController | null>(null);
   const [session, setSession] = useState({ id: "", conference_id: "", title: "", slot_date: "", start_time: "09:00", end_time: "10:00", speaker_name: "", speaker_affiliation: "", room: "", description: "", session_type: "talk", join_url: "", public_at: "" });
 
   async function load() {
@@ -44,22 +55,29 @@ export function OrganizerPage() {
   }
 
   async function loadSessions(conferenceId: string) {
+    // Abort the previous load so a slower response for another event cannot overwrite this one.
+    sessionsController.current?.abort();
+    const controller = new AbortController();
+    sessionsController.current = controller;
     if (!conferenceId) {
       setSessions([]);
       return;
     }
     try {
-      const result = await request<{ data: ScheduleSlot[] }>(`/my/conferences/${conferenceId}/sessions`);
-      setSessions(result.data ?? []);
+      const result = await request<{ data: ScheduleSlot[] }>(`/my/conferences/${conferenceId}/sessions`, { signal: controller.signal });
+      if (!controller.signal.aborted) setSessions(result.data ?? []);
     } catch (reason) {
-      setError(readableError(reason));
+      if (!controller.signal.aborted) setError(readableError(reason));
     }
   }
 
   useEffect(() => {
-    request<{ data: Conference[] }>("/my/conferences")
-      .then((result) => setItems(result.data ?? []))
-      .catch((reason: unknown) => setError(readableError(reason)));
+    const controller = new AbortController();
+    request<{ data: Conference[] }>("/my/conferences", { signal: controller.signal })
+      .then((result) => { if (!controller.signal.aborted) setItems(result.data ?? []); })
+      .catch((reason: unknown) => { if (!controller.signal.aborted) setError(readableError(reason)); })
+      .finally(() => { if (!controller.signal.aborted) setItemsLoading(false); });
+    return () => controller.abort();
   }, [request]);
 
   if (!user || !["verified_organizer", "organizer_member", "admin"].includes(user.role)) {
@@ -128,7 +146,12 @@ export function OrganizerPage() {
   }
 
   async function addSession(event: FormEvent) {
-    event.preventDefault(); setBusy(true); setError(""); setMessage("");
+    event.preventDefault(); setError(""); setMessage("");
+    if (session.join_url && !isHttpsUrl(session.join_url)) {
+      setError(tr("Ссылка подключения должна начинаться с https://.", "The join link must start with https://."));
+      return;
+    }
+    setBusy(true);
     try {
       const created = await request<{ id: string }>(session.id ? `/sessions/${session.id}` : `/conferences/${session.conference_id}/sessions`, { method: session.id ? "PUT" : "POST", body: {
         title: session.title, slot_date: session.slot_date, start_time: session.start_time, end_time: session.end_time,
@@ -169,8 +192,8 @@ export function OrganizerPage() {
     <span className={styles.eyebrow}>{tr("Управление мероприятиями", "Event management")}</span><h1 className={styles.title}>{tr("Кабинет организатора", "Organizer workspace")}</h1>
     {error && <p className={styles.error} role="alert">{error}</p>}{message && <p className={styles.success}>{message}</p>}
     <div className={styles.content}><h2>{tr("Мои мероприятия", "My events")}</h2></div>
-    {items.length ? <ul className={styles.list}>{items.map((conference) => <li className={styles.listItem} key={conference.id}>
-      <strong>{localize(conference.title, conference.title_en)}</strong><small>{statusLabel(conference.status)} · {new Date(conference.start_date).toLocaleDateString(dateLocale())}</small>
+    {itemsLoading ? <p className={styles.notice}>{tr("Загружаем мероприятия…", "Loading events…")}</p> : items.length ? <ul className={styles.list}>{items.map((conference) => <li className={styles.listItem} key={conference.id}>
+      <strong>{localize(conference.title, conference.title_en)}</strong><small>{statusLabel(conference.status)} · {parseDate(conference.start_date).toLocaleDateString(dateLocale())}</small>
       <div className={styles.inlineActions}><Button variant="secondary" onClick={() => navigate(`/conferences/${conference.slug}`)}>{tr("Открыть", "Open")}</Button>
         <Button variant="secondary" disabled={busy} onClick={() => startEdit(conference)}>{tr("Редактировать", "Edit")}</Button>
         {conference.status === "draft" && <Button disabled={busy} onClick={() => transition(conference, "registration_open")}>{tr("Опубликовать", "Publish")}</Button>}
@@ -207,7 +230,7 @@ export function OrganizerPage() {
       <label className={styles.field}>{tr("Показывать ссылку после", "Show link after")}<input type="datetime-local" value={session.public_at} onChange={(event) => setSession({ ...session, public_at: event.target.value })} /></label>
       <div className={styles.inlineActions}><Button type="submit" disabled={busy}>{busy ? tr("Сохраняем…", "Saving…") : session.id ? tr("Сохранить сессию", "Save session") : tr("Добавить сессию", "Add session")}</Button>{session.id && <Button type="button" variant="ghost" disabled={busy} onClick={() => setSession({ ...session, id: "", title: "", speaker_name: "", speaker_affiliation: "", room: "", description: "", join_url: "", public_at: "" })}>{tr("Отменить редактирование", "Cancel editing")}</Button>}</div>
     </form>
-    {session.conference_id && <><div className={styles.content}><h2>{tr("Программа мероприятия", "Event programme")}</h2></div>{sessions.length ? <ul className={styles.list}>{sessions.map((slot) => <li className={styles.listItem} key={slot.id}><strong>{slot.start_time.slice(0, 5)}–{slot.end_time.slice(0, 5)} · {slot.title}</strong><small>{new Date(slot.slot_date).toLocaleDateString(dateLocale())}{slot.speaker_name ? ` · ${slot.speaker_name}` : ""}{slot.room ? ` · ${slot.room}` : ""}</small><div className={styles.inlineActions}><Button type="button" variant="secondary" disabled={busy} onClick={() => editSession(slot)}>{tr("Редактировать", "Edit")}</Button><Button type="button" variant="ghost" disabled={busy} onClick={() => deleteSession(slot)}>{tr("Удалить", "Delete")}</Button></div></li>)}</ul> : <p className={styles.notice}>{tr("В программе пока нет сессий.", "The programme has no sessions yet.")}</p>}</>}
+    {session.conference_id && <><div className={styles.content}><h2>{tr("Программа мероприятия", "Event programme")}</h2></div>{sessions.length ? <ul className={styles.list}>{sessions.map((slot) => <li className={styles.listItem} key={slot.id}><strong>{slot.start_time.slice(0, 5)}–{slot.end_time.slice(0, 5)} · {slot.title}</strong><small>{parseDate(slot.slot_date).toLocaleDateString(dateLocale())}{slot.speaker_name ? ` · ${slot.speaker_name}` : ""}{slot.room ? ` · ${slot.room}` : ""}</small><div className={styles.inlineActions}><Button type="button" variant="secondary" disabled={busy} onClick={() => editSession(slot)}>{tr("Редактировать", "Edit")}</Button><Button type="button" variant="ghost" disabled={busy} onClick={() => deleteSession(slot)}>{tr("Удалить", "Delete")}</Button></div></li>)}</ul> : <p className={styles.notice}>{tr("В программе пока нет сессий.", "The programme has no sessions yet.")}</p>}</>}
     </>}
   </section>;
 }

@@ -1,3 +1,5 @@
+import { tr } from "../i18n/runtime";
+
 export interface ProblemDetails {
   code?: string;
   title?: string;
@@ -78,7 +80,8 @@ export function readableError(error: unknown): string {
     if (error.status === 429) return tr("Слишком много запросов. Попробуйте позднее.", "Too many requests. Please try again later.");
     return error.message;
   }
+  // fetch() rejects with TypeError on network failure; a non-JSON body (e.g. proxy error page) yields SyntaxError.
+  if (error instanceof TypeError || error instanceof SyntaxError) return tr("Не удалось связаться с сервером. Попробуйте ещё раз.", "Could not reach the server. Please try again.");
   if (error instanceof Error && error.message) return error.message;
   return tr("Не удалось связаться с сервером. Попробуйте ещё раз.", "Could not reach the server. Please try again.");
 }
-import { tr } from "../i18n/runtime";

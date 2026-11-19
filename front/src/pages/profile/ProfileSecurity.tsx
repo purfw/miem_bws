@@ -9,7 +9,7 @@ import page from "../Page.module.css";
 import styles from "./Profile.module.css";
 
 export function ProfileSecurity() {
-  const { user, request, logout, updateUser, refreshSession } = useAuth();
+  const { user, request, logout, refreshSession } = useAuth();
   const navigate = useNavigate();
   const cooldownKey = `confhub-verification-cooldown:${user?.id}`;
   const [until, setUntil] = useState(() => {
@@ -136,8 +136,8 @@ export function ProfileSecurity() {
         method: "DELETE",
         body: { current_password: deletePassword },
       });
-      await logout();
-      updateUser(null);
+      // The account is already deleted; logout() clears local state even if the request fails.
+      await logout().catch(() => undefined);
       navigate("/", { replace: true });
     } catch (reason) {
       setError(readableError(reason));

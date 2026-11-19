@@ -5,6 +5,8 @@ import styles from "./ConferenceCard.module.css";
 import calendarIcon from "../../../assets/icons/calendar.svg";
 import locationIcon from "../../../assets/icons/location.svg";
 import { dateLocale, localize, pluralLabel, tr } from "../../../i18n/runtime";
+import { formatDayRange } from "../../../i18n/dates";
+import { safeUrl } from "../../../api/safeUrl";
 
 interface ConferenceCardProps {
   conference: Conference;
@@ -39,21 +41,15 @@ const dotClasses: Record<Conference["status"], string> = {
   cancelled: styles.dotCompleted,
 };
 
-function formatDateRange(start: string, end: string): string {
-  const startDate = new Date(start);
-  const endDate = new Date(end);
-  const month = endDate.toLocaleString(dateLocale(), { month: "short" });
-  const year = endDate.getFullYear();
-  return `${startDate.getDate()}–${endDate.getDate()} ${month} ${year}`;
-}
-
 function countLabel(count: number, russian: [string, string, string], english: string): string {
   return `${count.toLocaleString(dateLocale())} ${pluralLabel(count, russian, [english, `${english}s`])}`;
 }
 
 export function ConferenceCard({ conference }: ConferenceCardProps) {
   const navigate = useNavigate();
-  const dates = formatDateRange(conference.start_date, conference.end_date);
+  const dates = formatDayRange(conference.start_date, conference.end_date, "short");
+  // safeUrl() only passes http(s) URLs; URL#href percent-encodes quotes, so the quoted CSS url() cannot be broken out of.
+  const coverUrl = safeUrl(conference.cover_image_url);
   const displayStatus = conference.status === "registration_open" && !conference.registration_open ? "registration_closed" : conference.status;
   const isUpcoming = displayStatus === "registration_closed";
   const coverClass = conference.registration_open
@@ -68,7 +64,7 @@ export function ConferenceCard({ conference }: ConferenceCardProps) {
     <article className={styles.card}>
       <div
         className={`${styles.cover} ${coverClass}`}
-        style={conference.cover_image_url ? { backgroundImage: `url(${conference.cover_image_url})` } : undefined}
+        style={coverUrl ? { backgroundImage: `url("${coverUrl}")` } : undefined}
       >
         <span className={`${styles.badge} ${badgeClasses[displayStatus]}`}>
           <span className={`${styles.badgeDot} ${dotClasses[displayStatus]}`} />

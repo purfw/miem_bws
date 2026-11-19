@@ -4,7 +4,12 @@ export const localeStorageKey = "confhub-locale";
 
 export function initialLocale(): Locale {
   if (typeof window === "undefined") return "ru";
-  const saved = window.localStorage.getItem(localeStorageKey);
+  let saved: string | null = null;
+  try {
+    saved = window.localStorage.getItem(localeStorageKey);
+  } catch {
+    // Storage may be blocked (privacy settings, sandboxed iframe); fall back to the browser language.
+  }
   if (saved === "ru" || saved === "en") return saved;
   return window.navigator.language.toLowerCase().startsWith("ru") ? "ru" : "en";
 }

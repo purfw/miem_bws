@@ -15,6 +15,9 @@ export interface RegisterInput {
 export interface AuthContextValue {
   user: User | null;
   loading: boolean;
+  /** Set when the session could not be checked (network/server error) — the user is not necessarily logged out. */
+  sessionError: string;
+  retrySession: () => void;
   login: (email: string, password: string) => Promise<User>;
   register: (input: RegisterInput) => Promise<void>;
   logout: () => Promise<void>;

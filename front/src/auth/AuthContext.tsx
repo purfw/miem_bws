@@ -6,7 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ApiError, apiRequest, type ApiRequestOptions } from "../api/client";
+import { ApiError, apiRequest, readableError, type ApiRequestOptions } from "../api/client";
 import type { User } from "../types/conference";
 import { AuthContext, type RegisterInput } from "./context";
 
@@ -14,18 +14,25 @@ interface AuthSession { access_token: string; expires_at: string; user: User }
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [sessionError, setSessionError] = useState("");
+  const [sessionAttempt, setSessionAttempt] = useState(0);
   const tokenRef = useRef<string | null>(null);
   const refreshPromise = useRef<Promise<AuthSession | null> | null>(null);
+  // Bumped by login/logout so that a refresh started earlier cannot overwrite the newer session state.
+  const generation = useRef(0);
 
   const refresh = useCallback(async (): Promise<AuthSession | null> => {
     if (refreshPromise.current) return refreshPromise.current;
+    const startedAt = generation.current;
     refreshPromise.current = apiRequest<AuthSession>("/auth/refresh", { method: "POST" })
       .then((session) => {
+        if (generation.current !== startedAt) return null;
         tokenRef.current = session.access_token;
         setUser(session.user);
         return session;
       })
       .catch((error: unknown) => {
+        if (generation.current !== startedAt) return null;
         if (!(error instanceof ApiError) || (error.status !== 401 && error.status !== 403)) throw error;
         tokenRef.current = null;
         setUser(null);
@@ -35,7 +42,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return refreshPromise.current;
   }, []);
 
-  useEffect(() => { void refresh().catch(() => undefined).finally(() => setLoading(false)); }, [refresh]);
+  useEffect(() => {
+    let active = true;
+    refresh()
+      .then(() => { if (active) setSessionError(""); })
+      // Network/5xx failure: the session state is unknown, not "logged out".
+      .catch((error: unknown) => { if (active) setSessionError(readableError(error)); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [refresh, sessionAttempt]);
+
+  const retrySession = useCallback(() => {
+    setLoading(true);
+    setSessionError("");
+    setSessionAttempt((value) => value + 1);
+  }, []);
 
   const refreshSession = useCallback(async () => {
     const session = await refresh();
@@ -48,8 +69,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       method: "POST",
       body: { email, password },
     });
+    generation.current += 1;
     tokenRef.current = session.access_token;
     setUser(session.user);
+    setSessionError("");
     return session.user;
   }, []);
 
@@ -61,6 +84,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await apiRequest<void>("/auth/logout", { method: "POST" });
     } finally {
+      generation.current += 1;
       tokenRef.current = null;
       setUser(null);
     }
@@ -79,8 +103,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const value = useMemo(
-    () => ({ user, loading, login, register, logout, refreshSession, updateUser: setUser, request }),
-    [user, loading, login, register, logout, refreshSession, request],
+    () => ({ user, loading, sessionError, retrySession, login, register, logout, refreshSession, updateUser: setUser, request }),
+    [user, loading, sessionError, retrySession, login, register, logout, refreshSession, request],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

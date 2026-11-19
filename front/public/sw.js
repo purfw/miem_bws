@@ -1,6 +1,14 @@
 const SHELL_CACHE = "confhub-shell-v2";
 const STATIC_CACHE = "confhub-static-v2";
+const STATIC_CACHE_LIMIT = 60;
 const APP_SHELL = ["/", "/manifest.webmanifest", "/favicon.svg", "/icons/icon-192.png", "/icons/icon-512.png"];
+
+// Hashed build assets accumulate across deploys; drop the oldest entries (keys() is insertion-ordered).
+async function trimCache(name, limit) {
+  const cache = await caches.open(name);
+  const keys = await cache.keys();
+  await Promise.all(keys.slice(0, Math.max(0, keys.length - limit)).map((key) => cache.delete(key)));
+}
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.addAll(APP_SHELL)));
@@ -25,9 +33,7 @@ self.addEventListener("fetch", (event) => {
 
   if (request.mode === "navigate") {
     event.respondWith(
-      fetch(request)
-        .then((response) => response)
-        .catch(() => caches.match("/")),
+      fetch(request).catch(() => caches.match("/")),
     );
     return;
   }
@@ -38,11 +44,17 @@ self.addEventListener("fetch", (event) => {
       const network = fetch(request).then((response) => {
         if (response.ok && response.type === "basic") {
           const copy = response.clone();
-          void caches.open(STATIC_CACHE).then((cache) => cache.put(request, copy));
+          void caches.open(STATIC_CACHE)
+            .then((cache) => cache.put(request, copy))
+            .then(() => trimCache(STATIC_CACHE, STATIC_CACHE_LIMIT));
         }
         return response;
       });
-      return cached || network;
+      if (cached) {
+        network.catch(() => undefined);
+        return cached;
+      }
+      return network;
     }),
   );
 });

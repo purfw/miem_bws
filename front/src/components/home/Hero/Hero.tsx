@@ -3,13 +3,12 @@ import { Button } from "../../ui/Button/Button";
 import { Stats } from "../Stats/Stats";
 import styles from "./Hero.module.css";
 import type { HomeResponse } from "../../../types/conference";
-import { dateLocale, localize, tr } from "../../../i18n/runtime";
+import { localize, tr } from "../../../i18n/runtime";
+import { formatDayRange } from "../../../i18n/dates";
 
 function formatRange(start?: string, end?: string) {
   if (!start || !end) return tr("Даты уточняются", "Dates to be confirmed");
-  const from = new Date(start);
-  const to = new Date(end);
-  return `${from.getDate()}–${to.getDate()} ${to.toLocaleString(dateLocale(), { month: "long" })} ${to.getFullYear()}`;
+  return formatDayRange(start, end, "long");
 }
 
 export function Hero({ data }: { data: HomeResponse | null }) {

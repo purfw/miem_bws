@@ -19,7 +19,11 @@ export function LoginPage() {
   const [orcidEnabled, setOrcidEnabled] = useState(false);
 
   useEffect(() => {
-    apiRequest<{ orcid: boolean }>("/auth/providers").then((providers) => setOrcidEnabled(providers.orcid)).catch(() => undefined);
+    const controller = new AbortController();
+    apiRequest<{ orcid: boolean }>("/auth/providers", { signal: controller.signal })
+      .then((providers) => { if (!controller.signal.aborted) setOrcidEnabled(providers.orcid); })
+      .catch(() => undefined);
+    return () => controller.abort();
   }, []);
 
   async function submit(event: FormEvent) {

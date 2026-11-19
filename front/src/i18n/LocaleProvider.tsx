@@ -8,7 +8,11 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     activateLocale(locale);
     document.documentElement.lang = locale;
-    window.localStorage.setItem(localeStorageKey, locale);
+    try {
+      window.localStorage.setItem(localeStorageKey, locale);
+    } catch {
+      // Storage may be blocked or full; the locale still applies for this session.
+    }
   }, [locale]);
 
   const value = useMemo(() => ({

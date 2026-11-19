@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useAuth } from "../../auth/useAuth";
 import { readableError } from "../../api/client";
 import { Button } from "../../components/ui/Button/Button";
@@ -9,9 +9,13 @@ import { ProfileFeedback } from "./ProfileUI";
 import page from "../Page.module.css";
 import styles from "./Profile.module.css";
 
+// Changing the locale remounts the whole app (<Fragment key={locale}> in App.tsx), which would drop
+// component state; the success message is carried across that remount here.
+let pendingMessage = "";
+
 export function ProfilePersonal() {
   const { user, request, updateUser } = useAuth();
-  const { setLocale } = useLocale();
+  const { locale, setLocale } = useLocale();
   const [form, setForm] = useState({
     first_name: user?.first_name ?? "",
     last_name: user?.last_name ?? "",
@@ -21,7 +25,10 @@ export function ProfilePersonal() {
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState(() => pendingMessage);
+  useEffect(() => {
+    pendingMessage = "";
+  }, []);
   async function save(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
@@ -33,8 +40,12 @@ export function ProfilePersonal() {
         body: form,
       });
       updateUser(updated);
-      setMessage(tr("Профиль сохранён.", "Profile saved."));
+      // Switch locale first so the message is rendered in the new language.
+      const remounts = updated.locale !== locale;
       setLocale(updated.locale);
+      const saved = tr("Профиль сохранён.", "Profile saved.");
+      if (remounts) pendingMessage = saved;
+      setMessage(saved);
     } catch (reason) {
       setError(readableError(reason));
     } finally {

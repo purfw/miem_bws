@@ -6,10 +6,15 @@ interface StatsProps {
   conferences?: number;
 }
 
-export function Stats({ participants = 0, conferences = 0 }: StatsProps) {
+// Undefined means "not loaded yet / failed": show a placeholder instead of a misleading 0.
+function statValue(count?: number): string {
+  return count === undefined ? "—" : count.toLocaleString(dateLocale());
+}
+
+export function Stats({ participants, conferences }: StatsProps) {
   const items = [
-    { value: conferences.toLocaleString(dateLocale()), label: pluralLabel(conferences, ["конференция", "конференции", "конференций"], ["conference", "conferences"]) },
-    { value: participants.toLocaleString(dateLocale()), label: pluralLabel(participants, ["участник", "участника", "участников"], ["participant", "participants"]) },
+    { value: statValue(conferences), label: pluralLabel(conferences ?? 0, ["конференция", "конференции", "конференций"], ["conference", "conferences"]) },
+    { value: statValue(participants), label: pluralLabel(participants ?? 0, ["участник", "участника", "участников"], ["participant", "participants"]) },
   ];
   return (
     <dl className={styles.stats}>

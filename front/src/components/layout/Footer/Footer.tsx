@@ -10,8 +10,8 @@ export function Footer() {
           <span>ConferenceHub</span>
         </div>
         <div className={styles.meta}>
-          <span>© 2026 ConferenceHub</span>
-          <span className={styles.version}>v 2.5.0</span>
+          <span>© {new Date().getFullYear()} ConferenceHub</span>
+          <span className={styles.version}>v {__APP_VERSION__}</span>
         </div>
       </div>
     </footer>

@@ -34,18 +34,14 @@ export function FiltersSidebar({
   showPeriod = false,
   expandableTopics = false,
 }: FiltersSidebarProps) {
-  const fallbackTopics: FilterOption[] = [
-    ["Нейронауки", "Neuroscience"], ["Машинное обучение", "Machine learning"],
-    ["Биоинформатика", "Bioinformatics"], ["Лингвистика", "Linguistics"],
-    ["Физика", "Physics"], ["Археология", "Archaeology"],
-  ].map(([itemValue, english]) => ({ value: itemValue, label: tr(itemValue, english), count: 0, selected: false }));
   const fallbackFormats: FilterOption[] = [
     { value: "offline", label: tr("Очно", "In person"), count: 0, selected: false },
     { value: "hybrid", label: tr("Гибрид", "Hybrid"), count: 0, selected: false },
     { value: "online", label: tr("Онлайн", "Online"), count: 0, selected: false },
   ];
   const [topicsExpanded, setTopicsExpanded] = useState(false);
-  const topics = facetValues(facets, "topics", fallbackTopics);
+  // Topics come only from API facets: no placeholder topics with fake zero counts.
+  const topics = facetValues(facets, "topics", []);
   const formats = facetValues(facets, "format", fallbackFormats);
   const visibleTopics = expandableTopics && !topicsExpanded ? topics.slice(0, COLLAPSED_TOPICS) : topics;
 
@@ -76,7 +72,7 @@ export function FiltersSidebar({
                   checked={value.topics.includes(facet.value)}
                   onChange={() => toggle("topics", facet.value)}
                 />
-                <span>{facet.value === "offline" ? tr("Очно", "In person") : facet.value === "hybrid" ? tr("Гибрид", "Hybrid") : facet.value === "online" ? tr("Онлайн", "Online") : facet.label}</span>
+                <span>{facet.label}</span>
               </label>
               <span className={styles.count}>{facet.count}</span>
             </li>

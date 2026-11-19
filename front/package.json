@@ -1,7 +1,7 @@
 {
-  "name": "2403",
+  "name": "confhub-front",
   "private": true,
-  "version": "0.0.0",
+  "version": "2.5.0",
   "type": "module",
   "packageManager": "pnpm@12.9.1",
   "scripts": {

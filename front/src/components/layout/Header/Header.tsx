@@ -21,14 +21,16 @@ export function Header() {
   const { user } = useAuth();
   const { locale, setLocale } = useLocale();
   const query = params.get("q") ?? "";
-  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [fetched, setFetched] = useState<{ query: string; items: string[] }>({ query: "", items: [] });
+  // Only show suggestions that belong to the current query (cleared when it drops below 2 chars).
+  const suggestions = query.trim().length >= 2 && fetched.query === query.trim() ? fetched.items : [];
 
   useEffect(() => {
     if (query.trim().length < 2) return;
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       apiRequest<{ data: { suggestions: Array<{ text: string }> } }>(`/search/autocomplete?q=${encodeURIComponent(query.trim())}&limit=5`, { signal: controller.signal })
-        .then((result) => setSuggestions(result.data.suggestions.map((item) => item.text)))
+        .then((result) => setFetched({ query: query.trim(), items: result.data.suggestions.map((item) => item.text) }))
         .catch(() => undefined);
     }, 200);
     return () => { window.clearTimeout(timer); controller.abort(); };

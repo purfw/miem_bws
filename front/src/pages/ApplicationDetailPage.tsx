@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { readableError } from "../api/client";
+import { safeRedirectUrl } from "../api/safeUrl";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/ui/Button/Button";
 import type { Application, ApplicationFile, ApplicationReview } from "../types/conference";
@@ -17,6 +18,8 @@ function ApplicationDetails({ id }: { id: string }) {
   const { request } = useAuth();
   const [application, setApplication] = useState<Application | null>(null);
   const [reviews, setReviews] = useState<ApplicationReview[]>([]);
+  const [reviewsError, setReviewsError] = useState("");
+  const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({ title: "", abstract: "", keywords: "" });
   const [file, setFile] = useState<File | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -27,15 +30,22 @@ function ApplicationDetails({ id }: { id: string }) {
 
   useEffect(() => {
     const controller = new AbortController();
-    Promise.all([
+    // Reviews are secondary: a failure there must not hide the application itself.
+    Promise.allSettled([
       request<Application>(`/applications/${id}`, { signal: controller.signal }),
       request<{ items: ApplicationReview[] }>(`/applications/${id}/reviews`, { signal: controller.signal }),
     ]).then(([item, result]) => {
       if (controller.signal.aborted) return;
-      setApplication(item);
-      setForm({ title: item.title, abstract: item.abstract ?? "", keywords: item.keywords.join(", ") });
-      setReviews(result.items);
-    }).catch((reason: unknown) => { if (!controller.signal.aborted) setError(readableError(reason)); });
+      if (item.status === "fulfilled") {
+        setApplication(item.value);
+        setForm({ title: item.value.title, abstract: item.value.abstract ?? "", keywords: item.value.keywords.join(", ") });
+      } else {
+        setError(readableError(item.reason));
+      }
+      if (result.status === "fulfilled") setReviews(result.value.items);
+      else setReviewsError(readableError(result.reason));
+      setLoading(false);
+    });
     return () => controller.abort();
   }, [id, request]);
 
@@ -79,6 +89,7 @@ function ApplicationDetails({ id }: { id: string }) {
     <Link className={styles.link} to="/profile">{tr("Вернуться в кабинет", "Back to account")}</Link>
     {error && <p className={styles.error} role="alert">{error}</p>}
     {message && <p className={styles.success} role="status">{message}</p>}
+    {loading && <p className={styles.notice}>{tr("Загружаем заявку…", "Loading application…")}</p>}
     {application && <>
       <p>{application.conference_title}</p>
       <p>{tr("Статус", "Status")}: {({ submitted: tr("Подана", "Submitted"), under_review: tr("На рассмотрении", "Under review"), revision_requested: tr("Нужна доработка", "Revision requested"), accepted: tr("Принята", "Accepted"), rejected: tr("Отклонена", "Rejected"), withdrawn: tr("Отозвана", "Withdrawn") })[application.status]}</p>
@@ -94,7 +105,7 @@ function ApplicationDetails({ id }: { id: string }) {
       <ul className={styles.list}>{application.files?.map((item) => <li className={styles.listItem} key={item.id}>
         <strong>{item.original_name}</strong><small>{Math.ceil(item.size_bytes / 1024)} KB</small>
         <div className={styles.inlineActions}>
-          <Button disabled={busy} variant="secondary" onClick={() => void action(async () => { const result = await request<{ url: string }>(`/files/${item.id}?redirect=false`); window.location.assign(result.url); })}>{tr("Скачать", "Download")}</Button>
+          <Button disabled={busy} variant="secondary" onClick={() => void action(async () => { const result = await request<{ url: string }>(`/files/${item.id}?redirect=false`); window.location.assign(safeRedirectUrl(result.url)); })}>{tr("Скачать", "Download")}</Button>
           {editable && <Button disabled={busy} variant="ghost" onClick={() => { if (window.confirm(tr("Удалить файл?", "Delete this file?"))) void action(async () => { await request<void>(`/files/${item.id}`, { method: "DELETE" }); setApplication((current) => current && ({ ...current, files: current.files?.filter((entry) => entry.id !== item.id) })); }); }}>{tr("Удалить", "Delete")}</Button>}
         </div>
       </li>)}</ul>
@@ -103,7 +114,7 @@ function ApplicationDetails({ id }: { id: string }) {
         <Button type="submit" disabled={busy || !file}>{tr("Прикрепить файл", "Attach file")}</Button>
       </form>}
       <h2>{tr("Рецензии", "Reviews")}</h2>
-      {reviews.length ? <ul className={styles.list}>{reviews.map((review) => <li className={styles.listItem} key={review.id}><strong>{review.reviewer_name} · {review.score}/10</strong><p>{review.summary}</p>{review.strengths && <p>{review.strengths}</p>}{review.weaknesses && <p>{review.weaknesses}</p>}</li>)}</ul> : <p>{tr("Рецензий, доступных автору, пока нет.", "No reviews are available to the author yet.")}</p>}
+      {reviewsError ? <p className={styles.error} role="alert">{reviewsError}</p> : reviews.length ? <ul className={styles.list}>{reviews.map((review) => <li className={styles.listItem} key={review.id}><strong>{review.reviewer_name} · {review.score}/10</strong><p>{review.summary}</p>{review.strengths && <p>{review.strengths}</p>}{review.weaknesses && <p>{review.weaknesses}</p>}</li>)}</ul> : <p>{tr("Рецензий, доступных автору, пока нет.", "No reviews are available to the author yet.")}</p>}
     </>}
   </section>;
 }

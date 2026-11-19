@@ -8,14 +8,21 @@ import { dateLocale, tr } from "../i18n/runtime";
 export function VerifyDocumentPage() {
   const [params] = useSearchParams();
   const code = params.get("code")?.trim() ?? "";
+  // Remount per code so a previous result/error is never shown for a new code.
+  return <VerifyDocument key={code} code={code} />;
+}
+
+function VerifyDocument({ code }: { code: string }) {
   const [document, setDocument] = useState<ParticipationDocument | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (!code) return;
-    apiRequest<ParticipationDocument>(`/documents/verify/${encodeURIComponent(code)}`)
-      .then(setDocument)
-      .catch((reason: unknown) => setError(readableError(reason)));
+    const controller = new AbortController();
+    apiRequest<ParticipationDocument>(`/documents/verify/${encodeURIComponent(code)}`, { signal: controller.signal })
+      .then((result) => { if (!controller.signal.aborted) setDocument(result); })
+      .catch((reason: unknown) => { if (!controller.signal.aborted) setError(readableError(reason)); });
+    return () => controller.abort();
   }, [code]);
 
   return <section className={styles.page}>

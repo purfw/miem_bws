@@ -1,6 +1,7 @@
-import { useCallback, useState, type FormEvent } from "react";
+import { useCallback, useRef, useState, type FormEvent } from "react";
 import { useAuth } from "../../auth/useAuth";
 import { readableError } from "../../api/client";
+import { safeRedirectUrl } from "../../api/safeUrl";
 import { Button } from "../../components/ui/Button/Button";
 import { ButtonLink } from "../../components/ui/Button/ButtonLink";
 import type { OrganizerVerification } from "../../types/conference";
@@ -29,6 +30,7 @@ export function ProfileOrganizer() {
   const resource = useProfileResource(load);
   const [organization, setOrganization] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -49,37 +51,37 @@ export function ProfileOrganizer() {
   }
   async function submit(event: FormEvent) {
     event.preventDefault();
-    setBusy("submit");
     setError("");
     setMessage("");
+    setBusy("submit");
     try {
       const result = await request<OrganizerVerification>("/verifications/", {
         method: "POST",
         body: { organization },
       });
       resource.setData((items) => [result, ...(items ?? [])]);
-      if (result.status === "pending") {
-        if (!file)
-          throw new Error(
-            tr(
-              "Для ручной проверки приложите подтверждающий документ.",
-              "Attach a supporting document for manual review.",
-            ),
-          );
-        await attach(result, file);
-      }
+      // A trusted email domain is approved without a document. Otherwise the
+      // request stays pending and the document can still be attached below.
+      const attached = result.status === "pending" && file !== null;
+      if (attached) await attach(result, file);
       setOrganization("");
       setFile(null);
+      if (fileInput.current) fileInput.current.value = "";
       setMessage(
         result.status === "approved"
           ? tr(
               "Заявка одобрена. Права применяются автоматически; затем обновите сессию.",
               "Request approved. Permissions are being applied automatically; refresh your session afterwards.",
             )
-          : tr(
-              "Заявка отправлена на модерацию.",
-              "The request has been sent for moderation.",
-            ),
+          : attached
+            ? tr(
+                "Заявка отправлена на модерацию.",
+                "The request has been sent for moderation.",
+              )
+            : tr(
+                "Заявка создана. Приложите подтверждающий документ, чтобы отправить её на модерацию.",
+                "Request created. Attach a supporting document to send it for moderation.",
+              ),
       );
     } catch (reason) {
       setError(readableError(reason));
@@ -94,7 +96,7 @@ export function ProfileOrganizer() {
       const result = await request<{ url: string }>(
         `/verification-documents/${id}?redirect=false`,
       );
-      window.location.assign(result.url);
+      window.location.assign(safeRedirectUrl(result.url));
     } catch (reason) {
       setError(readableError(reason));
     } finally {
@@ -233,6 +235,7 @@ export function ProfileOrganizer() {
                 "Supporting document (PDF, DOCX or PNG)",
               )}
               <input
+                ref={fileInput}
                 type="file"
                 accept=".pdf,.docx,.png,application/pdf,image/png"
                 onChange={(event) => setFile(event.target.files?.[0] ?? null)}
