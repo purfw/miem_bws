@@ -30,17 +30,13 @@ const (
 	RoleVerifiedOrganizer Role = "verified_organizer"
 	RoleOrganizerMember   Role = "organizer_member"
 	RoleAdmin             Role = "admin"
-	RoleStudent           Role = "student"   // legacy token
-	RoleModerator         Role = "moderator" // legacy token
 )
 
 var roleRank = map[Role]int{
 	RoleAnonymous:         0,
 	RoleUser:              1,
-	RoleStudent:           1,
 	RoleOrganizerMember:   2,
 	RoleVerifiedOrganizer: 2,
-	RoleModerator:         3,
 	RoleAdmin:             3,
 }
 
@@ -129,7 +125,8 @@ func NewVerifier(path, iss string) (*Verifier, error) {
 	return &Verifier{pub: pub, kid: keyID(pub), iss: iss}, nil
 }
 
-// WithRevocationStore enables access-token revocation through shared Redis.
+// WithRevocationStore enables Redis-based revocation checks. They apply only
+// when no state resolver is set; WithStateResolver takes precedence.
 func (v *Verifier) WithRevocationStore(rdb *redis.Client) *Verifier {
 	v.redis = rdb
 	return v

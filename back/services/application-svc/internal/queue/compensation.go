@@ -15,9 +15,9 @@ import (
 	"github.com/confhub/application-svc/internal/service"
 )
 
-// SubscribeConferenceCancellation withdraws in-flight applications idempotently.
 const compensationGroup = "application-compensation"
 
+// SubscribeConferenceCancellation withdraws in-flight applications idempotently.
 func SubscribeConferenceCancellation(ctx context.Context, nc *nats.Conn, svc *service.Applications, failures ...*natsx.FailureStore) error {
 	err := natsx.SubscribeDurable(nc, sharedevents.SubjectConferenceStatus, compensationGroup, func(m *nats.Msg) error {
 		var env struct {

@@ -1,199 +1,100 @@
-# Monitoring & Infrastructure Stack
+# Мониторинг ConfHub
 
-Комплексный набор инструментов для мониторинга, логирования, алертинга и резервного копирования production-приложения.
+Отдельный Compose-проект `monitoring`: метрики, журналы, алерты в Telegram и
+обёртки для резервного копирования. Запускается после основного проекта
+`confhub` и подключается к его сегменту `confhub_app`.
 
 ## Компоненты
 
-### 📊 Мониторинг
-- **Prometheus** (порт 9090) - сбор и хранение метрик
-- **Node Exporter** (порт 9100) - системные метрики (CPU, RAM, Disk)
-- **cAdvisor** (порт 8081) - метрики контейнеров Docker
-- **Grafana** (порт 3000) - дашборды и визуализация
+| Сервис | Порт на хосте | Назначение |
+| --- | --- | --- |
+| Prometheus | 127.0.0.1:9090 | Сбор метрик и правила алертов (`prometheus/alerts.yml`) |
+| Alertmanager | 127.0.0.1:9093 | Группировка алертов, отправка в `alert-bot` |
+| alert-bot | 127.0.0.1:8082 | Пересылка алертов Alertmanager в Telegram |
+| Grafana | 127.0.0.1:3000 | Дашборды; источники данных и дашборды загружаются из `grafana/provisioning` |
+| Loki | 127.0.0.1:3100 | Хранение журналов |
+| Promtail | — | Сбор журналов Docker-контейнеров в Loki |
+| Node Exporter | 127.0.0.1:9100 | Метрики хоста |
+| cAdvisor | 127.0.0.1:8081 | Метрики контейнеров |
 
-### 📝 Логирование
-- **Loki** (порт 3100) - агрегатор логов
-- **Promtail** - сборщик логов из Docker контейнеров
+Все порты опубликованы только на loopback. С компьютера администратора
+интерфейсы открываются через SSH-туннель, например для Grafana:
 
-### 🔔 Алертинг
-- **Alertmanager** (порт 9093) - маршрутизация алертов
-- **Telegram Bot** - уведомления в Telegram
+```bash
+ssh -L 3000:127.0.0.1:3000 root@<адрес-сервера>
+```
 
-### 💾 Резервное копирование
-- Скрипты для backup PostgreSQL, volumes, конфигов
-- Ротация бэкапов
-- Архивы шифруются (age) и хранятся локально 14 дней; внешняя выгрузка не настроена
+Prometheus опрашивает `/metrics` четырёх API (`identity-svc`,
+`conference-svc`, `application-svc`, `engagement-svc`) по сегменту
+`confhub_app`. Его адрес в этом сегменте статический, а доступ к портам
+метрик разрешён правилами `back/firewall/policy.conf`.
 
-## Быстрый старт
-
-### 1. Первичная настройка
+## Настройка и запуск
 
 ```bash
 cd /srv/confhub/monitoring
-
-# Создать .env из примера и заполнить
-cp .env.example .env
-nano .env
-```
-
-Настройте следующие переменные:
-- `TELEGRAM_BOT_TOKEN` - токен бота от @BotFather
-- `TELEGRAM_CHAT_ID` - ваш chat ID
-- `GRAFANA_PASSWORD` - пароль для Grafana
-
-### 2. Запуск мониторинга
-
-```bash
-# Запуск всей инфраструктуры мониторинга
-./manage_monitoring.sh setup
+./manage_monitoring.sh setup     # создаёт .env из .env.example, ставит logrotate
+$EDITOR .env                     # GRAFANA_PASSWORD, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 ./manage_monitoring.sh start
 ```
 
-### 3. Доступ к сервисам
+| Переменная | Назначение |
+| --- | --- |
+| `GRAFANA_USER`, `GRAFANA_PASSWORD` | Учётная запись администратора Grafana; без пароля стек не запустится |
+| `TELEGRAM_BOT_TOKEN` | Токен бота от @BotFather |
+| `TELEGRAM_CHAT_ID` | Чат, куда бот пишет алерты (бот должен получить в нём `/start`) |
+| `APPLICATION_NETWORK` | Сеть основного проекта, по умолчанию `confhub_app` |
 
-| Сервис | URL | Логин |
-|--------|-----|-------|
-| Prometheus | http://localhost:9090 | - |
-| Grafana | http://localhost:3000 | `GRAFANA_USER` и `GRAFANA_PASSWORD` из `.env` |
-| Loki | http://localhost:3100 | - |
-| Alertmanager | http://localhost:9093 | - |
-| Node Exporter | http://localhost:9100 | - |
-| cAdvisor | http://localhost:8081 | - |
-
-## Управление
-
-### Мониторинг
+## Команды
 
 ```bash
-# Старт/Стоп/Рестарт
-./manage_monitoring.sh start
-./manage_monitoring.sh stop
-./manage_monitoring.sh restart
-
-# Логи
-./manage_monitoring.sh logs prometheus
-./manage_monitoring.sh logs-follow grafana
-```
-
-### Резервное копирование
-
-```bash
-# Ручной запуск
+./manage_monitoring.sh start | stop | restart | status
+./manage_monitoring.sh logs [сервис]
+./manage_monitoring.sh logs-follow [сервис]
 ./manage_monitoring.sh backup
-
-# Просмотр бэкапов
 ./manage_monitoring.sh list-backups
-
-# Проверка структуры архива
-./manage_monitoring.sh restore --check /srv/confhub-backups/confhub-<timestamp>.tar.gz
-
-# Пробное восстановление PostgreSQL в отдельную временную БД
-./manage_monitoring.sh restore --verify-db /srv/confhub-backups/confhub-<timestamp>.tar.gz
+./manage_monitoring.sh restore --check     /srv/confhub-backups/confhub-<timestamp>.tar.gz.age
+./manage_monitoring.sh restore --verify-db /srv/confhub-backups/confhub-<timestamp>.tar.gz.age
 ```
+
+`backup` и `restore` — обёртки над `back/scripts/backup.sh` и
+`back/scripts/restore.sh`. Регулярную копию делает `confhub-backup.timer`
+(ежедневно в 03:00 МСК), его устанавливает `back/scripts/deploy.sh`. Формат
+архивов, шифрование и срок хранения описаны в
+[docs/RELIABILITY.md](../docs/RELIABILITY.md).
 
 ## Алерты
 
-### Настроенные алерты
+| Группа | Алерты |
+| --- | --- |
+| Контейнеры | `ContainerDown`, `ContainerRestartLoop`, `HighCPUUsage`, `HighMemoryUsage` |
+| Хост | `HighSystemCPU`, `HighSystemMemory`, `HighDiskUsage` (свободно < 20 %), `DiskAlmostFull` (< 10 %) |
+| Сервисы | `TargetDown`, `HighRequestLatency` (p95 > 5 с) |
+| Очереди (outbox, почта, выдача ролей) | `QueueCollectionFailed`, `QueueItemParked`, `QueueDeliveryStalled` |
+| Журналы | `LokiNotIngesting`, `LokiDroppedEntries` |
 
-1. **ContainerDown** - контейнер упал
-2. **HighCPUUsage** - высокая нагрузка CPU (>80%)
-3. **HighMemoryUsage** - высокая нагрузка памяти (>80%)
-4. **HighDiskUsage** - диск заполняется (<20%)
-5. **DiskAlmostFull** - диск почти полный (<10%)
-6. **TargetDown** - сервис недоступен
-7. **ContainerRestartLoop** - контейнер перезапускается
-
-### Настройка Telegram
-
-1. Создайте бота через @BotFather
-2. Получите токен бота
-3. Напишите боту /start
-4. Получите chat ID через @userinfobot
-5. Добавьте значения в `.env` файл
+Алерты уровня `critical` отправляются сразу и повторяются раз в час,
+`warning` — с задержкой 30 с и повтором раз в 4 часа. При активном
+`critical` одноимённый `warning` для того же экземпляра подавляется.
 
 ## Дашборды
 
-### Доступные дашборды
+| Дашборд | Содержание |
+| --- | --- |
+| Container & System Metrics | Хост и контейнеры: CPU, память, диск, сеть |
+| Application Services Dashboard | Состояние, CPU и память четырёх API; их журналы и ошибки из Loki |
+| ConfHub HTTP and delivery | Запросы в секунду, p95 длительности, незавершённые элементы очередей и возраст самого старого |
 
-1. **Container & System Metrics** - общие метрики системы и контейнеров
-2. **Application Services** - метрики конкретных сервисов (identity-svc, conference-svc и т.д.)
+## Журналы
 
-Дашборды автоматически загружаются в Grafana при первом запуске.
+Promtail читает журналы Docker-контейнеров и отправляет их в Loki.
+`logs/logrotate.conf` (ставится командой `setup` в `/etc/logrotate.d/confhub`)
+ограничивает размер json-журналов Docker на хосте.
 
-## Структура файлов
+## Диагностика
 
-```
-monitoring/
-├── docker-compose.monitoring.yml  # Docker Compose для мониторинга
-├── prometheus/
-│   ├── prometheus.yml             # Конфигурация Prometheus
-│   └── alerts.yml                 # Правила алертинга
-├── grafana/
-│   ├── provisioning/              # Автозагрузка datasources/dashboards
-│   └── dashboards/               # JSON дашборды
-├── alertmanager/
-│   └── alertmanager.yml          # Конфигурация Alertmanager
-├── loki/
-│   └── config.yml                 # Конфигурация Loki
-├── promtail/
-│   └── config.yml                 # Конфигурация Promtail
-├── alert-bot/
-│   ├── bot.py                     # Telegram бот
-│   └── requirements.txt
-├── backup/
-│   ├── backup.sh                  # Скрипт бэкапа
-│   └── restore.sh                 # Скрипт восстановления
-├── logs/
-│   ├── logrotate.conf             # Конфигурация ротации логов
-│   └── docker-log-rotate.json    # Конфигурация Docker логов
-├── manage_monitoring.sh           # Главный скрипт управления
-├── .env.example                  # Пример .env файла
-└── README.md                      # Этот файл
-```
-
-## Расписание
-
-Резервное копирование запускает `confhub-backup.timer` (ежедневно, ставится
-`back/scripts/deploy.sh`). Отдельная запись в crontab не нужна.
-
-## Интеграция с основным приложением
-
-Основное приложение должно быть запущено первым в Compose-проекте `confhub`.
-Prometheus подключается к его сегменту `confhub_app` (доступ задаёт `back/firewall/policy.conf`) и опрашивает внутренние
-`/metrics` четырёх API. Labels контейнеров сами по себе не настраивают scraping.
-
-```bash
-cd /srv/confhub/monitoring
-docker compose -p monitoring -f docker-compose.monitoring.yml up -d
-```
-
-## Troubleshooting
-
-### Prometheus не собирает метрики
-
-```bash
-# Проверьте targets
-curl http://localhost:9090/api/v1/targets
-
-# Проверьте логи
-./manage_monitoring.sh logs prometheus
-```
-
-### Telegram бот не работает
-
-```bash
-# Проверьте логи
-docker logs alert-bot
-```
-
-### Нет данных в Grafana
-
-1. Проверьте datasource (Configuration -> Data Sources)
-2. Проверьте правильность URL в provisioning
-3. Перезапустите Grafana: `docker restart grafana`
-
-## Безопасность
-
-- Все сервисы слушают только на localhost (127.0.0.1)
-- Доступ к мониторингу только через reverse proxy
-- Доступ Prometheus к сервисам ограничен правилами `back/firewall/policy.conf`
-- Используйте strong пароли в .env файле
+* Состояние целей Prometheus: `curl -s http://127.0.0.1:9090/api/v1/targets`.
+  Если API в состоянии `down`, проверьте, что основной проект запущен и
+  правила экрана применены (`sudo back/scripts/firewall.sh test --summary`).
+* Алерты не приходят в Telegram: `curl -s http://127.0.0.1:8082/health`
+  показывает, заданы ли токен и чат; журнал — `docker logs alert-bot`.

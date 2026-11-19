@@ -118,7 +118,9 @@ func EnsureEventStream(nc *nats.Conn) (nats.JetStreamContext, error) {
 	return js, nil
 }
 
-// SubscribeDurable registers a queue consumer with explicit ACK and bounded retries.
+// SubscribeDurable registers a queue consumer with explicit ACK. Without a
+// FailureStore the message is redelivered until the handler succeeds; with one
+// it is quarantined in PostgreSQL after the configured number of attempts.
 func SubscribeDurable(nc *nats.Conn, subject, durable string, handler func(*nats.Msg) error, stores ...*FailureStore) error {
 	var store *FailureStore
 	if len(stores) > 0 {

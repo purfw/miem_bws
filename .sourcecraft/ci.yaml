@@ -10,7 +10,7 @@ on:
   schedule:
     - workflows: [main-ci]
       interval: 1h
-      description: nightly full pipeline
+      description: hourly full pipeline
 
 workflows:
   main-ci:

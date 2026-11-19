@@ -57,7 +57,7 @@ sudo ./scripts/lab.sh up       # http://127.0.0.1:18081
 | Сегменты сети и межсетевой экран | [docs/NETWORK.md](docs/NETWORK.md) |
 | Отказоустойчивость, копии, MTBF/MTTR/SLO | [docs/RELIABILITY.md](docs/RELIABILITY.md) |
 | Схема базы данных | [back/db/schema.sql](back/db/schema.sql) |
-| API | [back/docs/openapi.yaml](back/docs/openapi.yaml) |
+| API | Swagger UI на `/docs`; схемы строятся из роутеров сервисов: `/api/v1/openapi/{identity,conference,application,engagement}.json` |
 | Мониторинг | [monitoring/README.md](monitoring/README.md) |
 
 ## Сценарии для защиты

@@ -96,7 +96,7 @@ func (h *Applications) downloadVerificationDocument(w http.ResponseWriter, r *ht
 		httputil.WriteError(w, r, &httputil.ValidationError{Fields: []httputil.FieldError{{Field: "id", Message: "invalid uuid"}}})
 		return
 	}
-	admin := c.Role == jwtauth.RoleAdmin || c.Role == jwtauth.RoleModerator
+	admin := c.Role == jwtauth.RoleAdmin
 	url, err := h.svc.VerificationDocumentURL(r.Context(), id, uid, admin)
 	if err != nil {
 		httputil.WriteError(w, r, err)

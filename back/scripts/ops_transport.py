@@ -26,7 +26,7 @@ def internal_opener(root: Path, project="confhub"):
                     "docker",
                     "inspect",
                     "-f",
-                    "{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
+                    f'{{{{(index .NetworkSettings.Networks "{project}_app").IPAddress}}}}',
                     f"{project}-{self.host}-1",
                 ],
                 text=True,

@@ -26,9 +26,6 @@ receivers:
       - url: 'http://alert-bot:8080/alerts'
         send_resolved: true
 
-  - name: 'null'
-    webhook_configs: []
-
 inhibit_rules:
   - equal: ['alertname', 'instance']
     source_match:

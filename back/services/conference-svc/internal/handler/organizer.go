@@ -68,7 +68,7 @@ func (h *Organizer) requireManage(r *http.Request, conferenceID uuid.UUID, permi
 	if err != nil {
 		return uuid.Nil, err
 	}
-	if c.Role == jwtauth.RoleAdmin || c.Role == jwtauth.RoleModerator {
+	if c.Role == jwtauth.RoleAdmin {
 		return userID, nil
 	}
 	if c.Role != jwtauth.RoleVerifiedOrganizer && c.Role != jwtauth.RoleOrganizerMember {

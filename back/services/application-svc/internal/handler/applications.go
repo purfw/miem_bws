@@ -133,7 +133,7 @@ func (h *Applications) detail(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, r, mapErr(err))
 		return
 	}
-	if app.UserID != uid && !c.Role.AtLeast(jwtauth.RoleModerator) {
+	if app.UserID != uid && !c.Role.AtLeast(jwtauth.RoleAdmin) {
 		httputil.WriteError(w, r, errForbidden())
 		return
 	}

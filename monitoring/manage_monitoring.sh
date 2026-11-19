@@ -15,8 +15,8 @@ log_info() { echo -e "${GREEN}[INFO]${NC} $*"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
 
-if [[ ! -f "$ENV_FILE" ]]; then
-    log_warn "Environment file not found, using defaults"
+if [[ ! -f "$ENV_FILE" && "${1:-help}" != setup && "${1:-help}" != help ]]; then
+    log_warn "monitoring/.env not found; run ./manage_monitoring.sh setup first"
 fi
 
 cd "$MONITORING_DIR"
@@ -24,9 +24,6 @@ cd "$MONITORING_DIR"
 case "${1:-help}" in
     start)
         log_info "Starting monitoring stack..."
-        
-        docker network create monitoring 2>/dev/null || true
-        
         docker compose -f docker-compose.monitoring.yml up -d
         log_info "Monitoring stack started!"
         echo ""
@@ -38,68 +35,66 @@ case "${1:-help}" in
         echo "  - Node Exporter: http://localhost:9100"
         echo "  - cAdvisor:      http://localhost:8081"
         ;;
-        
+
     stop)
         log_info "Stopping monitoring stack..."
         docker compose -f docker-compose.monitoring.yml down
         log_info "Monitoring stack stopped"
         ;;
-        
+
     restart)
         log_info "Restarting monitoring stack..."
         docker compose -f docker-compose.monitoring.yml restart
         log_info "Monitoring stack restarted"
         ;;
-    
+
     status)
         docker compose -f docker-compose.monitoring.yml ps
         ;;
-    
+
     logs)
         docker compose -f docker-compose.monitoring.yml logs "${2:-}"
         ;;
-    
+
     logs-follow)
         docker compose -f docker-compose.monitoring.yml logs -f "${2:-}"
         ;;
-    
+
     backup)
         log_info "Running backup..."
         bash "${MONITORING_DIR}/backup/backup.sh"
         ;;
-    
+
     restore)
         if [[ -z "${3:-}" ]]; then
-            log_error "Usage: $0 restore --check|--verify-db /path/confhub-archive.tar.gz"
+            log_error "Usage: $0 restore --check|--verify-db /path/confhub-<timestamp>.tar.gz.age"
             exit 1
         fi
         log_info "Checking backup: $3"
         bash "${MONITORING_DIR}/backup/restore.sh" "$2" "$3"
         ;;
-    
+
     list-backups)
-        ls -la "${BACKUP_ROOT:-/srv/confhub-backups}"/confhub-*.tar.gz 2>/dev/null || log_warn "No backups found"
+        ls -la "${BACKUP_ROOT:-/srv/confhub-backups}"/confhub-*.tar.gz* 2>/dev/null || log_warn "No backups found"
         ;;
-    
+
     setup)
         log_info "Setting up monitoring infrastructure..."
-        
+
         mkdir -p "${BACKUP_ROOT:-/srv/confhub-backups}"
-        
-        docker network create monitoring 2>/dev/null || true
-        
+
         if [[ -f "${MONITORING_DIR}/logs/logrotate.conf" ]]; then
             sudo cp "${MONITORING_DIR}/logs/logrotate.conf" /etc/logrotate.d/confhub || log_warn "Could not install logrotate config"
         fi
-        
+
         if [[ ! -f "$ENV_FILE" ]]; then
             cp "${MONITORING_DIR}/.env.example" "$ENV_FILE"
             log_info "Created .env file, please configure it"
         fi
-        
+
         log_info "Setup complete!"
         ;;
-    
+
     help|*)
         echo "Monitoring Management Script"
         echo ""

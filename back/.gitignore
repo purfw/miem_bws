@@ -6,13 +6,8 @@ vendor/
 .env
 .env.local
 .env.prod
-secrets/
 .env.lab
-secrets/jwt_ed25519.key
-secrets/jwt_ed25519.pub
-secrets/certs/
-secrets/admin-credentials.txt
-secrets/admin-auth/
+secrets/
 
 # Editor / OS
 .idea/

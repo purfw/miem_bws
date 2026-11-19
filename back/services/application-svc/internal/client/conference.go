@@ -1,4 +1,6 @@
-// Package client caches conference status with an internal HTTP fallback.
+// Package client holds signed mTLS clients for the Identity and Conference
+// internal APIs. Conference status is cached from NATS events with an HTTP
+// fallback.
 package client
 
 import (

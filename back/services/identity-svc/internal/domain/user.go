@@ -13,10 +13,6 @@ const (
 	RoleVerifiedOrganizer Role = "verified_organizer"
 	RoleOrganizerMember   Role = "organizer_member"
 	RoleAdmin             Role = "admin"
-
-	// Accept legacy roles until pre-migration access tokens expire.
-	RoleStudent   Role = "student"
-	RoleModerator Role = "moderator"
 )
 
 type User struct {

@@ -59,7 +59,7 @@ func (h *Applications) listReviews(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, r, &httputil.ValidationError{Fields: []httputil.FieldError{{Field: "id", Message: "invalid uuid"}}})
 		return
 	}
-	rvs, err := h.svc.ListReviews(r.Context(), id, uid, c.Role.AtLeast(jwtauth.RoleModerator))
+	rvs, err := h.svc.ListReviews(r.Context(), id, uid, c.Role.AtLeast(jwtauth.RoleAdmin))
 	if err != nil {
 		httputil.WriteError(w, r, err)
 		return
@@ -73,7 +73,7 @@ func (h *Applications) listReviews(w http.ResponseWriter, r *http.Request) {
 
 func (h *Applications) createReview(w http.ResponseWriter, r *http.Request) {
 	c := jwtauth.ClaimsFromContext(r.Context())
-	if c == nil || !c.Role.AtLeast(jwtauth.RoleModerator) {
+	if c == nil || !c.Role.AtLeast(jwtauth.RoleAdmin) {
 		httputil.WriteError(w, r, errForbidden())
 		return
 	}

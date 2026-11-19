@@ -60,7 +60,7 @@ func (h *Applications) listFiles(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, r, mapErr(err))
 		return
 	}
-	if app.UserID != uid && !c.Role.AtLeast(jwtauth.RoleModerator) {
+	if app.UserID != uid && !c.Role.AtLeast(jwtauth.RoleAdmin) {
 		httputil.WriteError(w, r, errForbidden())
 		return
 	}
@@ -99,7 +99,7 @@ func (h *Files) download(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, r, &httputil.ValidationError{Fields: []httputil.FieldError{{Field: "id", Message: "invalid uuid"}}})
 		return
 	}
-	url, _, err := h.apps.svc.PresignFile(r.Context(), id, uid, c.Role.AtLeast(jwtauth.RoleModerator))
+	url, _, err := h.apps.svc.PresignFile(r.Context(), id, uid, c.Role.AtLeast(jwtauth.RoleAdmin))
 	if err != nil {
 		httputil.WriteError(w, r, err)
 		return
