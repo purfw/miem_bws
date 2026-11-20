@@ -18,6 +18,7 @@ func TestAllEngagementRoutesHaveContracts(t *testing.T) {
 	r.Route("/internal", func(r chi.Router) {
 		operations.New(nil, "engagement_svc", nil).Routes(r)
 		r.Post("/admin/auth-audit", audit.LoginHandler(nil))
+		support.New(nil, nil, "").AdminRoutes(r)
 	})
 	models := subscriptions.APIModels()
 	for name, model := range support.APIModels() {

@@ -83,12 +83,17 @@ func (h *Applications) submit(w http.ResponseWriter, r *http.Request) {
 		}
 		sec = &s
 	}
+	coAuthors, err := domain.NormalizeCoAuthors(in.CoAuthors)
+	if err != nil {
+		httputil.WriteError(w, r, err)
+		return
+	}
 	email, name := profileFromContext(r)
 	app, err := h.svc.Submit(r.Context(), &service.SubmitInput{
 		ConferenceID: confID, SectionID: sec, UserID: uid,
 		UserEmail: email, UserName: name,
 		Form: domain.Form(in.Form), Title: in.Title, Abstract: in.Abstract,
-		CoAuthors: in.CoAuthors, Keywords: in.Keywords,
+		CoAuthors: coAuthors, Keywords: in.Keywords,
 	})
 	if err != nil {
 		httputil.WriteError(w, r, err)
@@ -186,6 +191,14 @@ func (h *Applications) updateMeta(w http.ResponseWriter, r *http.Request) {
 	if err := httputil.DecodeJSON(r, &in); err != nil {
 		httputil.WriteError(w, r, err)
 		return
+	}
+	if in.CoAuthors != nil {
+		coAuthors, err := domain.NormalizeCoAuthors(*in.CoAuthors)
+		if err != nil {
+			httputil.WriteError(w, r, err)
+			return
+		}
+		in.CoAuthors = &coAuthors
 	}
 	patch := repository.ApplicationPatch{
 		Title: in.Title, Abstract: in.Abstract, CoAuthors: in.CoAuthors, Keywords: in.Keywords,

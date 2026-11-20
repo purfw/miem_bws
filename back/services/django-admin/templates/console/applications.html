@@ -20,6 +20,7 @@
           <div><dt>Автор</dt><dd>{{ item.user_name }}<br>{{ item.user_email }}</dd></div>
           <div><dt>Статус</dt><dd><span class="badge">{{ item.status_label }}</span></dd></div>
         </dl>
+        <p><a href="{% url 'application_reviews' item.id %}?page={{ page }}&amp;status={{ application_statuses|urlencode }}">Рецензии</a></p>
         {% if can_moderate %}
           <div class="record-actions">
             {% if item.status == 'submitted' %}

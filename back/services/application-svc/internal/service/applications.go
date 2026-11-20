@@ -423,6 +423,9 @@ func (s *Applications) CreateReview(ctx context.Context, in *ReviewInput) (*doma
 	if !domain.ValidRecommendation(in.Recommendation) {
 		return nil, &httputil.ValidationError{Fields: []httputil.FieldError{{Field: "recommendation", Message: "invalid"}}}
 	}
+	if fields := validateReviewText(in); len(fields) > 0 {
+		return nil, &httputil.ValidationError{Fields: fields}
+	}
 	tx, err := s.repo.Pool().BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return nil, err
@@ -471,9 +474,46 @@ func (s *Applications) CreateReview(ctx context.Context, in *ReviewInput) (*doma
 	return rv, nil
 }
 
+// maxReviewText bounds every free-text review field.
+const maxReviewText = 5000
+
+func validateReviewText(in *ReviewInput) []httputil.FieldError {
+	var fields []httputil.FieldError
+	in.Summary = strings.TrimSpace(in.Summary)
+	if in.Summary == "" || utf8.RuneCountInString(in.Summary) > maxReviewText {
+		fields = append(fields, httputil.FieldError{Field: "summary", Message: "required, maximum 5000 characters"})
+	}
+	for _, optional := range []struct {
+		name  string
+		value **string
+	}{{"strengths", &in.Strengths}, {"weaknesses", &in.Weaknesses}} {
+		if *optional.value == nil {
+			continue
+		}
+		trimmed := strings.TrimSpace(**optional.value)
+		if trimmed == "" {
+			*optional.value = nil
+			continue
+		}
+		if utf8.RuneCountInString(trimmed) > maxReviewText {
+			fields = append(fields, httputil.FieldError{Field: optional.name, Message: "maximum 5000 characters"})
+			continue
+		}
+		*optional.value = &trimmed
+	}
+	in.ReviewerName = strings.TrimSpace(in.ReviewerName)
+	if in.ReviewerName == "" || utf8.RuneCountInString(in.ReviewerName) > 255 {
+		fields = append(fields, httputil.FieldError{Field: "reviewer_name", Message: "required, maximum 255 characters"})
+	}
+	return fields
+}
+
 func (s *Applications) ListReviews(ctx context.Context, appID, requester uuid.UUID, isModerator bool) ([]domain.Review, error) {
 	app, err := s.repo.GetByID(ctx, appID)
 	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, fmt.Errorf("application not found: %w", httputil.ErrNotFound)
+		}
 		return nil, err
 	}
 	visibleOnly := !isModerator
@@ -522,6 +562,23 @@ func (s *Applications) HandleConferenceCancelled(ctx context.Context, conference
 
 func (s *Applications) GetByID(ctx context.Context, id uuid.UUID) (*domain.Application, error) {
 	return s.repo.GetByID(ctx, id)
+}
+
+// ApplicationReviews returns an application with every review, including
+// those hidden from its author, for the administrator console.
+func (s *Applications) ApplicationReviews(ctx context.Context, id uuid.UUID) (*domain.Application, []domain.Review, error) {
+	app, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, nil, fmt.Errorf("application not found: %w", httputil.ErrNotFound)
+		}
+		return nil, nil, err
+	}
+	reviews, err := s.repo.ListReviews(ctx, id, true)
+	if err != nil {
+		return nil, nil, err
+	}
+	return app, reviews, nil
 }
 func (s *Applications) ListFiles(ctx context.Context, appID uuid.UUID) ([]domain.ApplicationFile, error) {
 	return s.repo.ListFiles(ctx, appID)

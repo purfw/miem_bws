@@ -121,15 +121,16 @@ func main() {
 	}
 	models["POST /internal/admin/auth-audit"] = openapi.Models{Request: audit.LoginRequest{}, Status: 204}
 	mux.Get("/openapi.json", openapi.Handler(mux, serviceName, models))
+	supportH := support.New(pool, m, cfg.SupportEmail)
 	mux.Route("/internal", func(r chi.Router) {
 		r.Use(servicetoken.NewVerifier(cfg.ServiceTokenSecret, rdb).Middleware)
 		r.Post("/admin/auth-audit", audit.LoginHandler(pool))
+		supportH.AdminRoutes(r)
 		operations.New(pool, "engagement_svc", func(ctx context.Context, tx pgx.Tx, actor uuid.UUID, event string, id uuid.UUID, queue string) error {
 			return audit.Insert(ctx, tx, audit.Entry{EventID: uuid.New(), EventType: event, ActorID: &actor, EntityType: "queue", EntityID: &id, Payload: map[string]string{"queue": queue}})
 		}).Routes(r)
 	})
 
-	supportH := support.New(pool, m, cfg.SupportEmail)
 	mux.Post("/api/v1/support/messages", supportH.Create)
 	subscriptionH := subscriptions.New(pool)
 	mux.Route("/api/v1/subscriptions", func(r chi.Router) {

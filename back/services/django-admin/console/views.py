@@ -1,8 +1,10 @@
 import os
 import uuid
+from datetime import datetime
 from urllib.parse import urlencode
 
 import psycopg
+from cryptography.fernet import InvalidToken
 from django.core.cache import cache
 from django.http import (
     HttpResponse,
@@ -23,7 +25,7 @@ from .authentication import (
     reserve_login_attempt,
     verify_credentials,
 )
-from .credentials import get_credentials
+from .credentials import get_credentials, load_accounts
 from .auth_audit import record
 from .access import admin_required as _admin_required
 from .access import permission_required as _permission_required
@@ -113,6 +115,33 @@ APPLICATION_STATUSES = {
     "under_review": "На проверке",
     "revision_requested": "На доработке",
 }
+SUPPORT_STATUSES = {
+    "new": "Новое",
+    "in_progress": "В работе",
+    "closed": "Закрыто",
+}
+SUPPORT_TRANSITIONS = {
+    "in_progress": "Взять в работу",
+    "closed": "Закрыть",
+    "new": "Вернуть в новые",
+}
+REVIEW_RECOMMENDATIONS = {
+    "accept": "Принять",
+    "minor_revision": "Небольшая доработка",
+    "major_revision": "Существенная доработка",
+    "reject": "Отклонить",
+}
+# Shown to authors for reviews they may read; staff logins stay internal.
+REVIEWER_DISPLAY_NAME = "Программный комитет"
+REVIEW_TEXT_LIMIT = 5000
+REVIEW_NOTICES = {"review-created": "Рецензия сохранена"}
+REVIEW_ERRORS = {
+    "operation-failed": (
+        "Не удалось сохранить рецензию. Повторите действие позже."
+    ),
+    "already-reviewed": "Вы уже оставили рецензию на эту заявку.",
+    "not-found": "Заявка не найдена.",
+}
 QUEUE_SERVICES = {
     "IDENTITY_SVC_URL": "Учётные записи",
     "CONFERENCE_SVC_URL": "Мероприятия",
@@ -140,6 +169,11 @@ NOTICES = {
         "account-blocked": "Учетная запись заблокирована",
         "account-unblocked": "Учетная запись разблокирована",
     },
+    "support": {
+        "support-new": "Обращение возвращено в новые",
+        "support-in-progress": "Обращение взято в работу",
+        "support-closed": "Обращение закрыто",
+    },
     "queues": {"queue-retried": "Задание поставлено на повтор"},
     "audit": {},
 }
@@ -152,6 +186,9 @@ ACTION_ERRORS = {
     ),
     "accounts": (
         "Не удалось изменить доступ пользователя. Повторите действие позже."
+    ),
+    "support": (
+        "Не удалось изменить статус обращения. Повторите действие позже."
     ),
     "queues": (
         "Не удалось поставить задание на повтор. Повторите действие позже."
@@ -178,12 +215,27 @@ def _application_statuses(values):
     return [status for status in APPLICATION_STATUSES if status in selected]
 
 
+def _support_statuses(values):
+    selected = next((value for value in values if value), "")
+    return [selected] if selected in SUPPORT_STATUSES else []
+
+
+def _section_statuses(section, values):
+    if section == "applications":
+        return _application_statuses(values.getlist("status"))
+    if section == "support":
+        return _support_statuses(values.getlist("status"))
+    return ()
+
+
 def _section_url(section, page, statuses=(), **extra):
     if section not in NOTICES:
         raise ValueError("Unknown console section")
     parameters = {"page": _page(page)}
     if section == "applications":
         parameters["status"] = ",".join(statuses or APPLICATION_STATUSES)
+    elif section == "support" and statuses:
+        parameters["status"] = ",".join(statuses)
     parameters.update(extra)
     return reverse(section) + "?" + urlencode(parameters)
 
@@ -215,11 +267,7 @@ def _page_context(
 
 
 def _return_to_section(request, section, *, notice=None, failed=False):
-    statuses = (
-        _application_statuses(request.POST.getlist("status"))
-        if section == "applications"
-        else ()
-    )
+    statuses = _section_statuses(section, request.POST)
     extra = {"error": "operation-failed"} if failed else {"notice": notice}
     return redirect(
         _section_url(
@@ -230,11 +278,7 @@ def _return_to_section(request, section, *, notice=None, failed=False):
 
 def _action_error(request, section, message, *, status=400):
     values = request.POST if request.method == "POST" else request.GET
-    statuses = (
-        _application_statuses(values.getlist("status"))
-        if section == "applications"
-        else ()
-    )
+    statuses = _section_statuses(section, values)
     return render(
         request,
         "console/action_error.html",
@@ -335,6 +379,262 @@ def applications(request):
                 for value, label in APPLICATION_STATUSES.items()
             ],
         },
+    )
+
+
+def _timestamp(value):
+    try:
+        return datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+
+
+@require_GET
+@_permission_required("read")
+def support(request):
+    page = _page(request.GET.get("page"))
+    statuses = _support_statuses(request.GET.getlist("status"))
+    items, more, errors = [], False, []
+    query = {"page": page, "per_page": PAGE_SIZE}
+    if statuses:
+        query["status"] = statuses[0]
+    try:
+        result = call(
+            "ENGAGEMENT_SVC_URL",
+            "GET",
+            "/internal/support/messages?" + urlencode(query),
+        )
+        items = [
+            dict(
+                item,
+                status_label=SUPPORT_STATUSES.get(
+                    item.get("status"), item.get("status", "")
+                ),
+                created=_timestamp(item.get("created_at", "")),
+                transitions=[
+                    {"value": value, "label": label}
+                    for value, label in SUPPORT_TRANSITIONS.items()
+                    if value != item.get("status")
+                ],
+            )
+            for item in result.get("data", [])
+        ]
+        more = result.get("has_more", False)
+    except (ServiceError, KeyError, AttributeError):
+        errors.append("Не удалось загрузить обращения в поддержку.")
+    return render(
+        request,
+        "console/support.html",
+        {
+            **_page_context(
+                request,
+                "support",
+                page,
+                more=more,
+                statuses=statuses,
+                errors=errors,
+            ),
+            "support_messages": items,
+            "selected_status": statuses[0] if statuses else "",
+            "status_options": [
+                {"value": value, "label": label}
+                for value, label in SUPPORT_STATUSES.items()
+            ],
+        },
+    )
+
+
+@require_POST
+@_permission_required("moderate")
+def set_support_status(request, item_id: uuid.UUID, status: str):
+    if status not in SUPPORT_STATUSES:
+        return _action_error(
+            request, "support", "Недопустимый статус обращения."
+        )
+    try:
+        call(
+            "ENGAGEMENT_SVC_URL",
+            "PATCH",
+            f"/internal/support/messages/{item_id}",
+            {"status": status, "changed_by": _actor(request)},
+        )
+        return _return_to_section(
+            request,
+            "support",
+            notice="support-" + status.replace("_", "-"),
+        )
+    except ServiceError:
+        return _return_to_section(request, "support", failed=True)
+
+
+def _applications_return_url(values):
+    return _section_url(
+        "applications",
+        _page(values.get("page")),
+        _application_statuses(values.getlist("status")),
+    )
+
+
+def _reviews_url(item_id, values, **extra):
+    parameters = {
+        "page": _page(values.get("page")),
+        "status": ",".join(_application_statuses(values.getlist("status"))),
+        **extra,
+    }
+    return (
+        reverse("application_reviews", args=[item_id])
+        + "?"
+        + urlencode(parameters)
+    )
+
+
+def _reviewer_names():
+    try:
+        return {
+            account.actor_id: account.username
+            for account in load_accounts(
+                os.environ["ADMIN_AUTH_FILE"],
+                os.environ["ADMIN_AUTH_KEY_FILE"],
+            )
+        }
+    except (OSError, KeyError, ValueError, InvalidToken):
+        return {}
+
+
+@require_GET
+@_permission_required("read")
+def application_reviews(request, item_id: uuid.UUID):
+    application, reviews, errors = None, [], []
+    try:
+        result = call(
+            "APPLICATION_SVC_URL",
+            "GET",
+            f"/internal/applications/{item_id}/reviews",
+        )
+        application = result["application"]
+        names = _reviewer_names()
+        actor = _actor(request)
+        reviews = [
+            dict(
+                review,
+                recommendation_label=REVIEW_RECOMMENDATIONS.get(
+                    review.get("recommendation"),
+                    review.get("recommendation", ""),
+                ),
+                reviewer_label=names.get(
+                    review.get("reviewer_id"), review.get("reviewer_id", "")
+                ),
+                own=review.get("reviewer_id") == actor,
+                created=_timestamp(review.get("created_at", "")),
+            )
+            for review in result.get("items", [])
+        ]
+    except ServiceError as exc:
+        errors.append(
+            REVIEW_ERRORS["not-found"]
+            if str(exc).startswith("404:")
+            else "Не удалось загрузить рецензии на заявку."
+        )
+    except (KeyError, TypeError, AttributeError):
+        errors.append("Не удалось загрузить рецензии на заявку.")
+    error = REVIEW_ERRORS.get(request.GET.get("error"))
+    if error:
+        errors.insert(0, error)
+    statuses = _application_statuses(request.GET.getlist("status"))
+    return render(
+        request,
+        "console/application_reviews.html",
+        {
+            **admin_context(request, "applications"),
+            "section_title": "Рецензии на заявку",
+            "page": _page(request.GET.get("page")),
+            "application_statuses": ",".join(statuses),
+            "notice": REVIEW_NOTICES.get(request.GET.get("notice"), ""),
+            "errors": errors,
+            "retry_url": _reviews_url(item_id, request.GET),
+            "return_url": _applications_return_url(request.GET),
+            "application": application,
+            "application_status_label": APPLICATION_STATUSES.get(
+                (application or {}).get("status"),
+                (application or {}).get("status", ""),
+            ),
+            "reviews": reviews,
+            "already_reviewed": any(review["own"] for review in reviews),
+            "item_id": item_id,
+            "score_options": range(10, 0, -1),
+            "recommendation_options": REVIEW_RECOMMENDATIONS.items(),
+            "text_limit": REVIEW_TEXT_LIMIT,
+        },
+    )
+
+
+def _review_payload(values):
+    try:
+        score = int(values.get("score", ""))
+    except ValueError:
+        score = 0
+    recommendation = values.get("recommendation", "")
+    summary = values.get("summary", "").strip()
+    texts = {
+        name: values.get(name, "").strip()
+        for name in ("strengths", "weaknesses")
+    }
+    if not 1 <= score <= 10:
+        return None, "Выберите оценку от 1 до 10."
+    if recommendation not in REVIEW_RECOMMENDATIONS:
+        return None, "Выберите рекомендацию по заявке."
+    if not summary:
+        return None, "Напишите общий вывод рецензии."
+    if any(
+        len(text) > REVIEW_TEXT_LIMIT for text in (summary, *texts.values())
+    ):
+        return None, (
+            f"Каждое поле рецензии — не более {REVIEW_TEXT_LIMIT} символов."
+        )
+    return {
+        "score": score,
+        "summary": summary,
+        "strengths": texts["strengths"] or None,
+        "weaknesses": texts["weaknesses"] or None,
+        "recommendation": recommendation,
+        "is_visible_to_author": values.get("visible_to_author") == "true",
+    }, ""
+
+
+@require_POST
+@_permission_required("moderate")
+def create_review(request, item_id: uuid.UUID):
+    payload, message = _review_payload(request.POST)
+    if payload is None:
+        return render(
+            request,
+            "console/action_error.html",
+            {
+                **admin_context(request, "applications"),
+                "message": message,
+                "return_url": _reviews_url(item_id, request.POST),
+            },
+            status=400,
+        )
+    try:
+        call(
+            "APPLICATION_SVC_URL",
+            "POST",
+            f"/internal/applications/{item_id}/reviews",
+            {
+                **payload,
+                "reviewer_id": _actor(request),
+                "reviewer_name": REVIEWER_DISPLAY_NAME,
+            },
+        )
+    except ServiceError as exc:
+        code = str(exc).split(":", 1)[0]
+        error = {"409": "already-reviewed", "404": "not-found"}.get(
+            code, "operation-failed"
+        )
+        return redirect(_reviews_url(item_id, request.POST, error=error))
+    return redirect(
+        _reviews_url(item_id, request.POST, notice="review-created")
     )
 
 

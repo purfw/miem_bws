@@ -40,6 +40,8 @@ func APIModels() map[string]openapi.Models {
 		"(*Files).download":                                    {Status: 302, OtherResponses: map[int]openapi.Models{200: {Response: url}}, Parameters: []openapi.Parameter{q("redirect", "boolean", "false returns JSON instead of a redirect")}, Auth: true},
 		"(*Files).delete":                                      {Status: 204, Auth: true},
 		"(*Internal).moderate":                                 {Request: moderateReq{}, Response: applicationDTO{}},
+		"(*Internal).listReviews":                              {Response: internalReviewsResp{Items: []reviewDTO{}}},
+		"(*Internal).createReview":                             {Request: internalReviewReq{}, Response: reviewDTO{}, Status: 201},
 		"(*Internal).list":                                     {Response: map[string]any{"items": []applicationDTO{}, "page": 0, "has_more": false}, Parameters: append(append([]openapi.Parameter{}, page...), q("conference_id", "string", "Conference UUID"), q("user_id", "string", "Applicant UUID"), q("status", "string", "Comma-separated application statuses"))},
 		"(*Internal).verificationQueue":                        {Response: map[string]any{"data": openapi.Array(queueVerification), "page": 0, "has_more": false}, Parameters: append(append([]openapi.Parameter{}, page...), q("status", "string", "pending, approved or rejected"))},
 		"(*Internal).moderateVerification":                     {Request: verificationModerateReq{}, Response: verification},

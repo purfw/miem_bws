@@ -1,0 +1,65 @@
+{% extends 'console/section.html' %}
+{% block description %}Рецензии видны модераторам консоли. Автор видит только рецензии, открытые для него, с подписью «Программный комитет».{% endblock %}
+{% block section_content %}
+  <p><a class="button secondary" href="{{ return_url }}">К заявкам на доклады</a></p>
+  {% if application %}
+    <article class="panel record" aria-labelledby="application-{{ application.id }}">
+      <h2 id="application-{{ application.id }}">{{ application.title }}</h2>
+      <p>{{ application.conference_title }}</p>
+      <dl class="record-facts">
+        <div><dt>Автор</dt><dd>{{ application.user_name }}<br>{{ application.user_email }}</dd></div>
+        <div><dt>Статус</dt><dd><span class="badge">{{ application_status_label }}</span></dd></div>
+      </dl>
+    </article>
+    <section aria-labelledby="reviews-heading">
+      <h2 id="reviews-heading">Рецензии</h2>
+      <div class="records">
+        {% for review in reviews %}
+          <article class="panel record" aria-labelledby="review-{{ review.id }}">
+            <h3 id="review-{{ review.id }}">{{ review.score }}/10 · {{ review.recommendation_label }}</h3>
+            <dl class="record-facts">
+              <div><dt>Рецензент</dt><dd>{% if review.own %}Вы{% else %}{{ review.reviewer_label }}{% endif %}</dd></div>
+              <div><dt>Автору</dt><dd>{% if review.is_visible_to_author %}Видна{% else %}Скрыта{% endif %}</dd></div>
+              {% if review.created %}<div><dt>Создана</dt><dd><time datetime="{{ review.created_at }}">{{ review.created|date:'d.m.Y H:i' }}</time></dd></div>{% endif %}
+            </dl>
+            <p class="message-body">{{ review.summary }}</p>
+            {% if review.strengths %}<h4>Сильные стороны</h4><p class="message-body">{{ review.strengths }}</p>{% endif %}
+            {% if review.weaknesses %}<h4>Что улучшить</h4><p class="message-body">{{ review.weaknesses }}</p>{% endif %}
+          </article>
+        {% empty %}
+          <div class="panel empty-state"><h2>Рецензий пока нет</h2><p>{% if can_moderate %}Напишите первую рецензию с помощью формы ниже.{% else %}Рецензии появятся после работы модераторов.{% endif %}</p></div>
+        {% endfor %}
+      </div>
+    </section>
+    {% if can_moderate %}
+      <section class="panel" aria-labelledby="review-form-heading">
+        <h2 id="review-form-heading">Новая рецензия</h2>
+        {% if already_reviewed %}
+          <p>Вы уже оставили рецензию на эту заявку. Одна рецензия на заявку от каждого сотрудника.</p>
+        {% else %}
+          <form class="review-form" method="post" action="{% url 'create_review' item_id %}">
+            {% include 'console/action_context.html' %}
+            <label for="review-score">Оценка
+              <select id="review-score" name="score" required>
+                <option value="">Выберите оценку</option>
+                {% for score in score_options %}<option value="{{ score }}">{{ score }}</option>{% endfor %}
+              </select>
+            </label>
+            <label for="review-recommendation">Рекомендация
+              <select id="review-recommendation" name="recommendation" required>
+                <option value="">Выберите рекомендацию</option>
+                {% for value, label in recommendation_options %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+              </select>
+            </label>
+            <label for="review-summary">Общий вывод<textarea id="review-summary" name="summary" maxlength="{{ text_limit }}" required></textarea></label>
+            <label for="review-strengths">Сильные стороны<textarea id="review-strengths" name="strengths" maxlength="{{ text_limit }}"></textarea></label>
+            <label for="review-weaknesses">Что улучшить<textarea id="review-weaknesses" name="weaknesses" maxlength="{{ text_limit }}"></textarea></label>
+            <label class="checkbox" for="review-visible"><input id="review-visible" type="checkbox" name="visible_to_author" value="true">Показать рецензию автору</label>
+            <div class="actions"><button>Сохранить рецензию</button></div>
+          </form>
+        {% endif %}
+      </section>
+    {% endif %}
+  {% endif %}
+{% endblock %}
+{% block pagination %}{% endblock %}

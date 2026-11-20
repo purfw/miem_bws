@@ -110,3 +110,69 @@ func (h *Applications) createReview(w http.ResponseWriter, r *http.Request) {
 	}
 	httputil.WriteJSON(w, http.StatusCreated, toReviewDTO(rv))
 }
+
+// internalReviewReq is sent by the administrator console, which signs the
+// request with a service token and attributes the review to its actor.
+type internalReviewReq struct {
+	ReviewerID        string  `json:"reviewer_id"`
+	ReviewerName      string  `json:"reviewer_name"`
+	Score             int16   `json:"score"`
+	Summary           string  `json:"summary"`
+	Strengths         *string `json:"strengths,omitempty"`
+	Weaknesses        *string `json:"weaknesses,omitempty"`
+	Recommendation    string  `json:"recommendation"`
+	IsVisibleToAuthor bool    `json:"is_visible_to_author"`
+}
+
+type internalReviewsResp struct {
+	Application applicationDTO `json:"application"`
+	Items       []reviewDTO    `json:"items"`
+}
+
+func (h *Internal) listReviews(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		httputil.WriteError(w, r, &httputil.ValidationError{Fields: []httputil.FieldError{{Field: "id", Message: "invalid uuid"}}})
+		return
+	}
+	app, rvs, err := h.svc.ApplicationReviews(r.Context(), id)
+	if err != nil {
+		httputil.WriteError(w, r, err)
+		return
+	}
+	out := internalReviewsResp{Application: toApplicationDTO(app), Items: make([]reviewDTO, 0, len(rvs))}
+	for i := range rvs {
+		out.Items = append(out.Items, toReviewDTO(&rvs[i]))
+	}
+	httputil.WriteJSON(w, http.StatusOK, out)
+}
+
+func (h *Internal) createReview(w http.ResponseWriter, r *http.Request) {
+	appID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		httputil.WriteError(w, r, &httputil.ValidationError{Fields: []httputil.FieldError{{Field: "id", Message: "invalid uuid"}}})
+		return
+	}
+	var in internalReviewReq
+	if err := httputil.DecodeJSON(r, &in); err != nil {
+		httputil.WriteError(w, r, err)
+		return
+	}
+	reviewer, err := uuid.Parse(in.ReviewerID)
+	if err != nil || reviewer == uuid.Nil {
+		httputil.WriteError(w, r, &httputil.ValidationError{Fields: []httputil.FieldError{{Field: "reviewer_id", Message: "invalid uuid"}}})
+		return
+	}
+	rv, err := h.svc.CreateReview(r.Context(), &service.ReviewInput{
+		ApplicationID: appID, ReviewerID: reviewer, ReviewerName: in.ReviewerName,
+		Score: in.Score, Summary: in.Summary,
+		Strengths: in.Strengths, Weaknesses: in.Weaknesses,
+		Recommendation:    domain.Recommendation(in.Recommendation),
+		IsVisibleToAuthor: in.IsVisibleToAuthor,
+	})
+	if err != nil {
+		httputil.WriteError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusCreated, toReviewDTO(rv))
+}

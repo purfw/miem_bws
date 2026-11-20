@@ -14,12 +14,19 @@ from console.client import ServiceError
 from .test_authentication import login
 from .test_roles import second_account
 
-PAGES = ("verifications", "applications", "accounts", "queues", "audit")
+PAGES = (
+    "verifications",
+    "applications",
+    "support",
+    "accounts",
+    "queues",
+    "audit",
+)
 VISIBLE = {
     "superadmin": (*PAGES, "users", "team"),
-    "moderator": ("verifications", "applications", "audit"),
-    "operator": ("verifications", "applications", "queues"),
-    "auditor": ("verifications", "applications", "audit"),
+    "moderator": ("verifications", "applications", "support", "audit"),
+    "operator": ("verifications", "applications", "support", "queues"),
+    "auditor": ("verifications", "applications", "support", "audit"),
 }
 
 
@@ -130,6 +137,13 @@ def test_sections_only_load_their_own_data(credentials, section):
             "GET",
             "/internal/applications?status=submitted,under_review,"
             "revision_requested&page=2&per_page=50",
+        )
+        assert call.call_count == 1
+    elif section == "support":
+        assert call.call_args.args == (
+            "ENGAGEMENT_SVC_URL",
+            "GET",
+            "/internal/support/messages?page=2&per_page=50",
         )
         assert call.call_count == 1
     elif section == "queues":

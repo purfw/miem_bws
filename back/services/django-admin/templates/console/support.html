@@ -1,0 +1,41 @@
+{% extends 'console/section.html' %}
+{% block description %}Обращения пользователей из формы поддержки, от новых к старым. Отмечайте, какие взяты в работу и закрыты.{% endblock %}
+{% block section_content %}
+  <section class="panel filter" aria-label="Фильтр обращений">
+    <form method="get" action="{% url 'support' %}">
+      <fieldset><legend>Статус обращения</legend><div class="choices">
+        <label><input type="radio" name="status" value=""{% if not selected_status %} checked{% endif %}>Все</label>
+        {% for option in status_options %}
+          <label><input type="radio" name="status" value="{{ option.value }}"{% if option.value == selected_status %} checked{% endif %}>{{ option.label }}</label>
+        {% endfor %}
+      </div></fieldset>
+      <div class="actions"><button>Показать</button><a class="button secondary" href="{% url 'support' %}">Все обращения</a></div>
+    </form>
+  </section>
+  <div class="records">
+    {% for item in support_messages %}
+      <article class="panel record" aria-labelledby="support-{{ item.id }}">
+        <h2 id="support-{{ item.id }}">{{ item.subject|default:item.topic_label }}</h2>
+        <p>{{ item.topic_label }}{% if item.created %} · <time datetime="{{ item.created_at }}">{{ item.created|date:'d.m.Y H:i' }}</time>{% endif %}</p>
+        <dl class="record-facts">
+          <div><dt>Отправитель</dt><dd>{{ item.name }}<br><a href="mailto:{{ item.email }}">{{ item.email }}</a></dd></div>
+          <div><dt>Статус</dt><dd><span class="badge{% if item.status == 'closed' %} active{% endif %}">{{ item.status_label }}</span></dd></div>
+          {% if item.user_id %}<div><dt>Пользователь</dt><dd>{{ item.user_id }}</dd></div>{% endif %}
+          {% if item.conference_id %}<div><dt>Мероприятие</dt><dd>{{ item.conference_id }}</dd></div>{% endif %}
+        </dl>
+        <p class="message-body">{{ item.message }}</p>
+        {% if can_moderate %}
+          <div class="record-actions">
+            {% for transition in item.transitions %}
+              <form method="post" action="{% url 'set_support_status' item.id transition.value %}">
+                {% include 'console/action_context.html' %}<button{% if transition.value != 'in_progress' %} class="secondary"{% endif %}>{{ transition.label }}</button>
+              </form>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </article>
+    {% empty %}
+      {% if not errors %}<div class="panel empty-state"><h2>Обращений нет</h2><p>{% if selected_status %}Обращений с выбранным статусом нет. Измените фильтр.{% else %}Новые обращения появятся здесь после отправки формы поддержки.{% endif %}</p></div>{% endif %}
+    {% endfor %}
+  </div>
+{% endblock %}

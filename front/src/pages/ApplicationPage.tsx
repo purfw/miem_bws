@@ -3,7 +3,9 @@ import { Link, useParams } from "react-router-dom";
 import { readableError } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/ui/Button/Button";
-import type { Application, ConferenceDetail } from "../types/conference";
+import type { Application, CoAuthor, ConferenceDetail } from "../types/conference";
+import { CoAuthorsEditor } from "../components/application/CoAuthorsEditor";
+import { cleanCoAuthors } from "../components/application/coAuthors";
 import styles from "./Page.module.css";
 import { localize, tr } from "../i18n/runtime";
 
@@ -16,6 +18,7 @@ export function ApplicationPage() {
   const [abstract, setAbstract] = useState("");
   const [sectionId, setSectionId] = useState("");
   const [keywords, setKeywords] = useState("");
+  const [coAuthors, setCoAuthors] = useState<CoAuthor[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<Application | null>(null);
@@ -45,6 +48,7 @@ export function ApplicationPage() {
           abstract: abstract.trim() || undefined,
           section_id: sectionId || undefined,
           keywords: keywords.split(",").map((item) => item.trim()).filter(Boolean),
+          co_authors: cleanCoAuthors(coAuthors),
         },
       });
       setCreated(application);
@@ -72,6 +76,7 @@ export function ApplicationPage() {
           {conference?.sections.length ? <label className={styles.field}>{tr("Секция", "Section")}<select value={sectionId} onChange={(event) => setSectionId(event.target.value)}><option value="">{tr("Без секции", "No section")}</option>{conference.sections.map((section) => <option key={section.id} value={section.id}>{localize(section.title, section.title_en)}</option>)}</select></label> : null}
           <label className={styles.field}>{tr("Аннотация", "Abstract")}<textarea minLength={20} value={abstract} onChange={(event) => setAbstract(event.target.value)} /></label>
           <label className={styles.field}>{tr("Ключевые слова через запятую", "Comma-separated keywords")}<input value={keywords} onChange={(event) => setKeywords(event.target.value)} /></label>
+          <CoAuthorsEditor value={coAuthors} onChange={setCoAuthors} disabled={busy} />
           <Button type="submit" disabled={busy || !conference}>{busy ? tr("Отправляем…", "Sending…") : tr("Отправить заявку", "Submit application")}</Button>
         </form>
       )}

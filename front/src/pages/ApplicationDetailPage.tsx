@@ -4,7 +4,9 @@ import { readableError } from "../api/client";
 import { safeRedirectUrl } from "../api/safeUrl";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/ui/Button/Button";
-import type { Application, ApplicationFile, ApplicationReview } from "../types/conference";
+import type { Application, ApplicationFile, ApplicationReview, CoAuthor } from "../types/conference";
+import { CoAuthorsEditor } from "../components/application/CoAuthorsEditor";
+import { cleanCoAuthors } from "../components/application/coAuthors";
 import { tr } from "../i18n/runtime";
 import styles from "./Page.module.css";
 
@@ -21,6 +23,7 @@ function ApplicationDetails({ id }: { id: string }) {
   const [reviewsError, setReviewsError] = useState("");
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({ title: "", abstract: "", keywords: "" });
+  const [coAuthors, setCoAuthors] = useState<CoAuthor[]>([]);
   const [file, setFile] = useState<File | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -39,6 +42,7 @@ function ApplicationDetails({ id }: { id: string }) {
       if (item.status === "fulfilled") {
         setApplication(item.value);
         setForm({ title: item.value.title, abstract: item.value.abstract ?? "", keywords: item.value.keywords.join(", ") });
+        setCoAuthors(item.value.co_authors ?? []);
       } else {
         setError(readableError(item.reason));
       }
@@ -59,6 +63,7 @@ function ApplicationDetails({ id }: { id: string }) {
   async function save(resubmit = false) {
     const item = await request<Application>(`/applications/${id}`, { method: "PATCH", body: {
       title: form.title.trim(), abstract: form.abstract.trim(), keywords: form.keywords.split(",").map((word) => word.trim()).filter(Boolean),
+      co_authors: cleanCoAuthors(coAuthors),
     } });
     const updated = resubmit ? await request<Application>(`/applications/${id}/resubmit`, { method: "POST" }) : item;
     setApplication((current) => ({ ...updated, files: current?.files ?? [] }));
@@ -98,6 +103,7 @@ function ApplicationDetails({ id }: { id: string }) {
         <label className={styles.field}>{tr("Название", "Title")}<input required maxLength={500} disabled={!editable || busy} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label>
         <label className={styles.field}>{tr("Аннотация", "Abstract")}<textarea disabled={!editable || busy} value={form.abstract} onChange={(event) => setForm({ ...form, abstract: event.target.value })} /></label>
         <label className={styles.field}>{tr("Ключевые слова", "Keywords")}<input disabled={!editable || busy} value={form.keywords} onChange={(event) => setForm({ ...form, keywords: event.target.value })} /></label>
+        <CoAuthorsEditor value={coAuthors} onChange={setCoAuthors} disabled={!editable || busy} />
         {editable && <Button type="submit" disabled={busy}>{tr("Сохранить", "Save")}</Button>}
         {application.status === "revision_requested" && <Button type="button" disabled={busy || !form.title.trim()} onClick={() => void action(() => save(true))}>{tr("Отправить на проверку повторно", "Resubmit for review")}</Button>}
       </form>

@@ -26,7 +26,6 @@ var topics = map[string]string{
 	"account":     "Учётная запись",
 	"application": "Заявка на участие",
 	"conference":  "Организация конференции",
-	"payment":     "Оплата",
 	"bug":         "Ошибка на сайте",
 	"other":       "Другое",
 }

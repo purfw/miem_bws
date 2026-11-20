@@ -9,6 +9,7 @@ urlpatterns = [
     path("admin/", views.dashboard, name="dashboard"),
     path("admin/verifications/", views.verifications, name="verifications"),
     path("admin/applications/", views.applications, name="applications"),
+    path("admin/support/", views.support, name="support"),
     path("admin/accounts/", views.accounts, name="accounts"),
     path("admin/queues/", views.queues, name="queues"),
     path("admin/audit/", views.audit, name="audit"),
@@ -36,6 +37,21 @@ urlpatterns = [
         "admin/verification-documents/<uuid:item_id>/",
         views.verification_document,
         name="verification_document",
+    ),
+    path(
+        "admin/applications/<uuid:item_id>/reviews/",
+        views.application_reviews,
+        name="application_reviews",
+    ),
+    path(
+        "admin/applications/<uuid:item_id>/reviews/new/",
+        views.create_review,
+        name="create_review",
+    ),
+    path(
+        "admin/support/<uuid:item_id>/<str:status>/",
+        views.set_support_status,
+        name="set_support_status",
     ),
     path(
         "admin/applications/<uuid:item_id>/<str:status>/",

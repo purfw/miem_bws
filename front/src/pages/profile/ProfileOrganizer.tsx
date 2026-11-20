@@ -150,7 +150,7 @@ export function ProfileOrganizer() {
                     dateLocale(),
                   )}
                 </time>{" "}
-                · {tr("способ", "method")}: {verification.method}
+                · {tr("способ", "method")}: {verification.method === "documents" ? tr("документы", "documents") : verification.method === "trusted_domain" ? tr("доверенный домен", "trusted domain") : verification.method === "orcid" ? "ORCID" : verification.method}
               </p>
               {verification.rejection_reason && (
                 <p>{verification.rejection_reason}</p>

@@ -300,6 +300,14 @@
     .filter .choices { display: flex; gap: var(--space-3); flex-wrap: wrap; }
     .filter .choices label { display: inline-flex; align-items: center; gap: var(--space-2); }
     .filter input[type="checkbox"] { min-height: auto; }
+    .filter input[type="radio"] { min-height: auto; }
+    .message-body { white-space: pre-wrap; margin: var(--space-3) 0; }
+    .review-form { display: grid; gap: var(--space-3); }
+    .review-form label { display: grid; gap: var(--space-1); font-weight: 600; }
+    .review-form textarea, .review-form select, .review-form input:not([type=checkbox]) { width: 100%; min-width: 0; }
+    .review-form textarea { min-height: 96px; resize: vertical; }
+    .review-form .checkbox { display: flex; align-items: center; gap: var(--space-2); font-weight: 400; }
+    .review-form .checkbox input { min-height: auto; }
     .pagination { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; justify-content: space-between; }
     .event-list { list-style: none; padding: 0; display: grid; gap: var(--space-3); }
     .event h2 { font-size: 16px; }

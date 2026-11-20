@@ -14,6 +14,25 @@ import {
 import page from "../Page.module.css";
 import styles from "./Profile.module.css";
 
+type NotifyOn = Subscription["notify_on"][number];
+
+const notificationTypes: Array<{ value: NotifyOn; label: [string, string] }> = [
+  { value: "conference_published", label: ["Новое мероприятие по фильтрам", "New matching event"] },
+  { value: "deadline_approaching", label: ["Приближается дедлайн регистрации", "Registration deadline approaching"] },
+  { value: "session_updated", label: ["Изменения в программе", "Programme changes"] },
+  { value: "speaker_added", label: ["Новые докладчики", "New speakers"] },
+  { value: "conference_cancelled", label: ["Отмена мероприятия", "Event cancelled"] },
+];
+
+function notificationLabel(value: NotifyOn): string {
+  const item = notificationTypes.find((entry) => entry.value === value);
+  return item ? tr(...item.label) : value;
+}
+
+function formatLabel(value: string): string {
+  return value === "offline" ? tr("Очно", "In person") : value === "hybrid" ? tr("Гибрид", "Hybrid") : value === "online" ? tr("Онлайн", "Online") : value;
+}
+
 export function ProfileNotifications() {
   const { request } = useAuth();
   const load = useCallback(
@@ -30,6 +49,9 @@ export function ProfileNotifications() {
     from: "",
     to: "",
   });
+  // Filter subscriptions announce new events by default; programme updates
+  // for every matching event are opt-in because they can be frequent.
+  const [notifyOn, setNotifyOn] = useState<NotifyOn[]>(["conference_published", "deadline_approaching"]);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -55,13 +77,7 @@ export function ProfileNotifications() {
           method: "POST",
           body: {
             criteria,
-            notify_on: [
-              "conference_published",
-              "deadline_approaching",
-              "session_updated",
-              "speaker_added",
-              "conference_cancelled",
-            ],
+            notify_on: notifyOn,
             channels: ["email"],
           },
         },
@@ -70,12 +86,7 @@ export function ProfileNotifications() {
         result.data,
         ...(items ?? []).filter((item) => item.id !== result.data.id),
       ]);
-      setMessage(
-        tr(
-          "Подписка сохранена. Доставка писем требует подключённого почтового сервиса.",
-          "Subscription saved. Email delivery requires a configured mail provider.",
-        ),
-      );
+      setMessage(tr("Подписка сохранена. Письма будут приходить на ваш email.", "Subscription saved. Emails will be sent to your address."));
     } catch (reason) {
       setError(readableError(reason));
     } finally {
@@ -169,7 +180,24 @@ export function ProfileNotifications() {
             }
           />
         </label>
-        <Button type="submit" disabled={Boolean(busy)}>
+        <fieldset className={styles.form}>
+          <legend>{tr("Что присылать", "What to send")}</legend>
+          {notificationTypes.map((item) => (
+            <label key={item.value}>
+              <input
+                type="checkbox"
+                checked={notifyOn.includes(item.value)}
+                onChange={(event) =>
+                  setNotifyOn(event.target.checked
+                    ? [...notifyOn, item.value]
+                    : notifyOn.filter((value) => value !== item.value))
+                }
+              />{" "}
+              {tr(...item.label)}
+            </label>
+          ))}
+        </fieldset>
+        <Button type="submit" disabled={Boolean(busy) || notifyOn.length === 0}>
           {tr("Подписаться по фильтрам", "Subscribe to filters")}
         </Button>
       </form>
@@ -189,7 +217,7 @@ export function ProfileNotifications() {
                 <p className={styles.muted}>
                   {[
                     subscription.criteria?.topics?.join(", "),
-                    subscription.criteria?.formats?.join(", "),
+                    subscription.criteria?.formats?.map(formatLabel).join(", "),
                     subscription.criteria?.city,
                     subscription.criteria?.from,
                     subscription.criteria?.to,
@@ -199,8 +227,7 @@ export function ProfileNotifications() {
                 </p>
               )}
               <p className={styles.muted}>
-                {subscription.notify_on.length}{" "}
-                {tr("типа уведомлений", "notification types")} · email
+                {subscription.notify_on.map(notificationLabel).join(", ")} · email
               </p>
               <div className={styles.actions}>
                 {subscription.conference_id && (

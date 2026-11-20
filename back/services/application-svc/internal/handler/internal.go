@@ -24,6 +24,8 @@ func NewInternal(svc *service.Applications) *Internal { return &Internal{svc: sv
 func (h *Internal) Routes(r chi.Router) {
 	r.Patch("/applications/{id}/moderate", h.moderate)
 	r.Get("/applications", h.list)
+	r.Get("/applications/{id}/reviews", h.listReviews)
+	r.Post("/applications/{id}/reviews", h.createReview)
 	r.Get("/verifications", h.verificationQueue)
 	r.Patch("/verifications/{id}", h.moderateVerification)
 	r.Get("/verification-documents/{id}", h.internalVerificationDocument)

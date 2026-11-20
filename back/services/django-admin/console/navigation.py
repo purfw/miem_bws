@@ -1,6 +1,7 @@
 SECTIONS = (
     ("verifications", "Полномочия организаторов", "read"),
     ("applications", "Заявки на доклады", "read"),
+    ("support", "Обращения в поддержку", "read"),
     ("accounts", "Учетные записи", "accounts"),
     ("queues", "Фоновые задачи", "operations"),
     ("audit", "Журнал действий", "audit"),
@@ -19,6 +20,9 @@ ACTION_SECTIONS = {
     "moderate_verification": "verifications",
     "verification_document": "verifications",
     "moderate_application": "applications",
+    "application_reviews": "applications",
+    "create_review": "applications",
+    "set_support_status": "support",
     "set_account_active": "accounts",
     "retry_queue": "queues",
     "change_user": "users",
