@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CatalogFilter, FilterOption } from "../../../types/conference";
 import styles from "./FiltersSidebar.module.css";
 import { tr } from "../../../i18n/runtime";
@@ -43,6 +43,18 @@ export function FiltersSidebar({
   // Topics come only from API facets: no placeholder topics with fake zero counts.
   const topics = facetValues(facets, "topics", []);
   const formats = facetValues(facets, "format", fallbackFormats);
+  const cities = facetValues(facets, "city_options", []);
+  // The city field is applied after a short pause so typing does not reload
+  // the catalogue on every keystroke. An external change (reset) replaces the draft.
+  const [city, setCity] = useState({ source: value.city, draft: value.city });
+  const cityDraft = city.source === value.city ? city.draft : value.city;
+  const latest = useRef({ value, onChange });
+  useEffect(() => { latest.current = { value, onChange }; });
+  useEffect(() => {
+    if (cityDraft.trim() === value.city.trim()) return;
+    const timer = window.setTimeout(() => latest.current.onChange({ ...latest.current.value, city: cityDraft }), 400);
+    return () => window.clearTimeout(timer);
+  }, [cityDraft, value.city]);
   const visibleTopics = expandableTopics && !topicsExpanded ? topics.slice(0, COLLAPSED_TOPICS) : topics;
 
   function toggle(key: "topics" | "formats", item: string) {
@@ -122,7 +134,10 @@ export function FiltersSidebar({
       <hr className={styles.divider} />
       <section className={styles.group}>
         <label className={styles.groupTitle} htmlFor="catalog-city">{tr("ГОРОД", "CITY")}</label>
-        <input id="catalog-city" type="search" className={styles.cityInput} placeholder={tr("Любой", "Any")} value={value.city} onChange={(event) => onChange({ ...value, city: event.target.value })} />
+        <input id="catalog-city" type="search" className={styles.cityInput} placeholder={tr("Любой", "Any")} list="catalog-city-options" autoComplete="off" value={cityDraft} onChange={(event) => setCity({ source: value.city, draft: event.target.value })} />
+        <datalist id="catalog-city-options">
+          {cities.map((item) => <option key={item.value} value={item.value}>{`${item.label} (${item.count})`}</option>)}
+        </datalist>
       </section>
     </aside>
   );

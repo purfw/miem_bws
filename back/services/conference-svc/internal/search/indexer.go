@@ -15,39 +15,69 @@ import (
 	"github.com/confhub/conference-svc/internal/domain"
 )
 
+// indexMapping is versioned through the index name: a change here needs a
+// new default index name in config.go; the indexer fills the new index from
+// PostgreSQL on start.
+//
+// Every text field has a stemmed variant for whole words and a ".prefix"
+// variant (edge n-grams) so that the beginning of a word also matches.
 const indexMapping = `{
   "settings": {
-    "index": {"refresh_interval": "1s", "max_result_window": 100000, "number_of_replicas": 0},
+    "index": {"refresh_interval": "1s", "max_result_window": 100000, "number_of_replicas": 0, "max_ngram_diff": 18},
     "analysis": {
+      "char_filter": {
+        "yo": {"type": "mapping", "mappings": ["ё => е", "Ё => Е"]}
+      },
       "filter": {
         "ru_stop": {"type": "stop", "stopwords": "_russian_"},
         "ru_stem": {"type": "stemmer", "language": "russian"},
         "en_stop": {"type": "stop", "stopwords": "_english_"},
-        "en_stem": {"type": "stemmer", "language": "english"}
+        "en_stem": {"type": "stemmer", "language": "english"},
+        "prefix_grams": {"type": "edge_ngram", "min_gram": 2, "max_gram": 20}
       },
       "analyzer": {
-        "confhub_ru": {"tokenizer": "standard", "filter": ["lowercase", "ru_stop", "ru_stem"]},
-        "confhub_en": {"tokenizer": "standard", "filter": ["lowercase", "en_stop", "en_stem"]}
+        "confhub_ru": {"tokenizer": "standard", "char_filter": ["yo"], "filter": ["lowercase", "ru_stop", "ru_stem"]},
+        "confhub_en": {"tokenizer": "standard", "char_filter": ["yo"], "filter": ["lowercase", "en_stop", "en_stem"]},
+        "confhub_prefix": {"tokenizer": "standard", "char_filter": ["yo"], "filter": ["lowercase", "ru_stop", "en_stop", "prefix_grams"]},
+        "confhub_prefix_search": {"tokenizer": "standard", "char_filter": ["yo"], "filter": ["lowercase", "ru_stop", "en_stop"]}
+      },
+      "normalizer": {
+        "lower": {"type": "custom", "char_filter": ["yo"], "filter": ["lowercase"]}
       }
     }
   },
   "mappings": {
     "dynamic": "strict",
     "properties": {
-      "title": {"type": "text", "analyzer": "confhub_ru", "fields": {"raw": {"type": "keyword"}, "suggest": {"type": "search_as_you_type"}}},
-      "title_en": {"type": "text", "analyzer": "confhub_en", "fields": {"suggest": {"type": "search_as_you_type"}}},
+      "title": {"type": "text", "analyzer": "confhub_ru", "fields": {
+        "raw": {"type": "keyword", "normalizer": "lower"},
+        "prefix": {"type": "text", "analyzer": "confhub_prefix", "search_analyzer": "confhub_prefix_search"}}},
+      "title_en": {"type": "text", "analyzer": "confhub_en", "fields": {
+        "prefix": {"type": "text", "analyzer": "confhub_prefix", "search_analyzer": "confhub_prefix_search"}}},
       "slug": {"type": "keyword"},
-      "description": {"type": "text", "analyzer": "confhub_ru"},
-      "description_en": {"type": "text", "analyzer": "confhub_en"},
+      "description": {"type": "text", "analyzer": "confhub_ru", "fields": {
+        "prefix": {"type": "text", "analyzer": "confhub_prefix", "search_analyzer": "confhub_prefix_search"}}},
+      "description_en": {"type": "text", "analyzer": "confhub_en", "fields": {
+        "prefix": {"type": "text", "analyzer": "confhub_prefix", "search_analyzer": "confhub_prefix_search"}}},
       "format": {"type": "keyword"},
       "status": {"type": "keyword"},
       "start_date": {"type": "date"},
       "end_date": {"type": "date"},
-      "city": {"type": "text", "analyzer": "confhub_ru", "fields": {"raw": {"type": "keyword"}}},
-      "topics": {"type": "text", "analyzer": "confhub_ru", "fields": {"keyword": {"type": "keyword"}}},
-      "organizer_names": {"type": "text", "analyzer": "confhub_ru"},
+      "city": {"type": "text", "analyzer": "confhub_ru", "fields": {
+        "raw": {"type": "keyword"},
+        "lower": {"type": "keyword", "normalizer": "lower"},
+        "prefix": {"type": "text", "analyzer": "confhub_prefix", "search_analyzer": "confhub_prefix_search"}}},
+      "topics": {"type": "text", "analyzer": "confhub_ru", "fields": {
+        "keyword": {"type": "keyword"},
+        "prefix": {"type": "text", "analyzer": "confhub_prefix", "search_analyzer": "confhub_prefix_search"}}},
+      "organizer_names": {"type": "text", "analyzer": "confhub_ru", "fields": {
+        "prefix": {"type": "text", "analyzer": "confhub_prefix", "search_analyzer": "confhub_prefix_search"}}},
+      "speakers": {"type": "text", "analyzer": "confhub_ru", "fields": {
+        "prefix": {"type": "text", "analyzer": "confhub_prefix", "search_analyzer": "confhub_prefix_search"}}},
+      "program": {"type": "text", "analyzer": "confhub_ru", "fields": {
+        "prefix": {"type": "text", "analyzer": "confhub_prefix", "search_analyzer": "confhub_prefix_search"}}},
       "publication_allowed": {"type": "boolean"},
-	  "created_at": {"type": "date"},
+      "created_at": {"type": "date"},
       "updated_at": {"type": "date"}
     }
   }
@@ -60,31 +90,46 @@ type Source interface {
 type Indexer struct {
 	client *Client
 	source Source
+	// indexed remembers updated_at of recently indexed rows so the overlap
+	// window does not resend unchanged documents.
+	indexed map[uuid.UUID]time.Time
 }
 
 func NewIndexer(client *Client, source Source) *Indexer {
-	return &Indexer{client: client, source: source}
+	return &Indexer{client: client, source: source, indexed: map[uuid.UUID]time.Time{}}
 }
 
+const (
+	syncInterval = 2 * time.Second
+	// syncOverlap re-reads recent rows: updated_at is the transaction start
+	// time, so a long transaction can commit with a timestamp behind the cursor.
+	syncOverlap = time.Minute
+	// fullResyncEvery re-reads the whole table to repair any remaining drift.
+	fullResyncEvery = time.Hour
+	syncBatch       = 500
+)
+
 func (i *Indexer) Run(ctx context.Context) error {
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(syncInterval)
 	defer ticker.Stop()
 	var cursor time.Time
 	var cursorID uuid.UUID
+	lastFull := time.Now()
 	for {
 		created, err := i.client.ensureIndex(ctx)
 		if err != nil {
 			i.client.setReady(false)
 			slog.Error("ensure search index", "err", err)
 		} else {
-			if created {
-				cursor, cursorID = time.Time{}, uuid.Nil
+			if created || time.Since(lastFull) >= fullResyncEvery {
+				cursor, cursorID, lastFull = time.Time{}, uuid.Nil, time.Now()
+				clear(i.indexed)
 			}
 			i.client.setReady(true) // a partial rebuild remains searchable
-			if next, nextID, err := i.sync(ctx, cursor, cursorID); err != nil {
+			if next, err := i.sync(ctx, cursor, cursorID); err != nil {
 				slog.Error("sync search index", "err", err)
-			} else {
-				cursor, cursorID = next, nextID
+			} else if !next.IsZero() {
+				cursor, cursorID = next.Add(-syncOverlap), uuid.Nil
 			}
 		}
 		select {
@@ -95,22 +140,48 @@ func (i *Indexer) Run(ctx context.Context) error {
 	}
 }
 
-func (i *Indexer) sync(ctx context.Context, cursor time.Time, cursorID uuid.UUID) (time.Time, uuid.UUID, error) {
+// sync indexes rows after the cursor and returns the newest updated_at seen,
+// or the zero time when nothing was read.
+func (i *Indexer) sync(ctx context.Context, cursor time.Time, cursorID uuid.UUID) (time.Time, error) {
+	var newest time.Time
 	for {
-		docs, err := i.source.SearchIndexBatch(ctx, cursor, cursorID, 500)
+		docs, err := i.source.SearchIndexBatch(ctx, cursor, cursorID, syncBatch)
 		if err != nil {
-			return cursor, cursorID, err
+			return newest, err
 		}
 		if len(docs) == 0 {
-			return cursor, cursorID, nil
+			return newest, nil
 		}
-		if err := i.client.bulk(ctx, docs); err != nil {
-			return cursor, cursorID, err
+		changed := make([]domain.SearchDocument, 0, len(docs))
+		for _, d := range docs {
+			if seen, ok := i.indexed[d.ID]; !ok || !seen.Equal(d.UpdatedAt) {
+				changed = append(changed, d)
+			}
+		}
+		if len(changed) > 0 {
+			if err := i.client.bulk(ctx, changed); err != nil {
+				return newest, err
+			}
 		}
 		last := docs[len(docs)-1]
 		cursor, cursorID = last.UpdatedAt, last.ID
-		if len(docs) < 500 {
-			return cursor, cursorID, nil
+		if last.UpdatedAt.After(newest) {
+			newest = last.UpdatedAt
+		}
+		for _, d := range changed {
+			i.indexed[d.ID] = d.UpdatedAt
+		}
+		if len(docs) < syncBatch {
+			i.forgetBefore(newest.Add(-2 * syncOverlap))
+			return newest, nil
+		}
+	}
+}
+
+func (i *Indexer) forgetBefore(t time.Time) {
+	for id, at := range i.indexed {
+		if at.Before(t) {
+			delete(i.indexed, id)
 		}
 	}
 }

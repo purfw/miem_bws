@@ -207,7 +207,6 @@ services:
       JOIN_URL_ENCRYPTION_KEYS: ${JOIN_URL_ENCRYPTION_KEYS:-}
       JOIN_URL_ACTIVE_KEY_VERSION: ${JOIN_URL_ACTIVE_KEY_VERSION:-1}
       ELASTICSEARCH_URL: http://elasticsearch:9200
-      ELASTICSEARCH_INDEX: confhub-conferences-v1
       SEARCH_RATE_LIMIT: "200"
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:

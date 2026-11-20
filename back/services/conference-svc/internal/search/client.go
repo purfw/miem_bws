@@ -62,7 +62,7 @@ type Client struct {
 
 func NewClient(endpoint, index string, cache *redis.Client, cacheTTL time.Duration) *Client {
 	if index == "" {
-		index = "confhub-conferences-v1"
+		index = "confhub-conferences-v2"
 	}
 	return &Client{
 		endpoint: strings.TrimRight(endpoint, "/"), index: index, cache: cache, cacheTTL: cacheTTL,
@@ -182,13 +182,14 @@ func (c *Client) Autocomplete(ctx context.Context, query string, limit int) ([]S
 			},
 			"should": []any{
 				map[string]any{"multi_match": map[string]any{
-					"query": query, "type": "bool_prefix", "fields": []string{
-						"title.suggest", "title.suggest._2gram", "title.suggest._3gram",
-						"title_en.suggest", "title_en.suggest._2gram", "title_en.suggest._3gram",
-					},
+					"query": query, "type": "phrase_prefix", "fields": []string{"title^2", "title_en^2"}, "boost": 3,
 				}},
 				map[string]any{"multi_match": map[string]any{
-					"query": query, "fields": []string{"title^3", "title_en^3"}, "fuzziness": "AUTO",
+					"query": query, "type": "cross_fields", "operator": "and",
+					"fields": []string{"title.prefix^3", "title_en.prefix^3", "topics.prefix", "speakers.prefix"},
+				}},
+				map[string]any{"multi_match": map[string]any{
+					"query": query, "fields": []string{"title^3", "title_en^3"}, "operator": "and", "fuzziness": "AUTO", "prefix_length": 1,
 				}},
 			},
 			"minimum_should_match": 1,

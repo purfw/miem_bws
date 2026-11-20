@@ -37,7 +37,11 @@ export function CatalogView() {
   const searchString = params.toString();
   const tab = parseTab(params.get("tab"));
   const page = Math.max(1, Number(params.get("page")) || 1);
-  const sort = params.get("sort") ?? "start_date";
+  const searching = (params.get("q") ?? "").trim() !== "";
+  const requestedSort = params.get("sort");
+  const sort = requestedSort && (requestedSort !== "relevance" || searching)
+    ? requestedSort
+    : searching ? "relevance" : "start_date";
   const filters: FilterState = {
     topics: list(params.get("topics")),
     formats: list(params.get("format")),
@@ -52,6 +56,7 @@ export function CatalogView() {
     const query = new URLSearchParams(searchString);
     query.set("page", String(page));
     query.set("per_page", "9");
+    query.set("sort", sort);
     if (tab === "all") {
       query.delete("tab");
       query.set("status", "registration_open,registration_closed,in_progress,completed,archived");
@@ -82,7 +87,7 @@ export function CatalogView() {
       })
       .finally(() => { if (!controller.signal.aborted && !clamped) setLoading(false); });
     return () => controller.abort();
-  }, [request, searchString, page, tab, retry, setParams]);
+  }, [request, searchString, page, tab, sort, retry, setParams]);
 
   function mutate(changes: Record<string, string | null>) {
     const next = new URLSearchParams(params);
@@ -137,6 +142,7 @@ export function CatalogView() {
           <label>
             <span className={styles.visuallyHidden}>{tr("Сортировка", "Sort")}</span>
             <select className={styles.sort} value={sort} onChange={(event) => mutate({ sort: event.target.value, page: null })}>
+              {searching && <option value="relevance">{tr("По релевантности", "Most relevant")}</option>}
               <option value="start_date">{tr("Сначала ближайшие", "Nearest first")}</option>
               <option value="-start_date">{tr("Сначала поздние", "Latest first")}</option>
               <option value="-created_at">{tr("Сначала новые", "Newest first")}</option>

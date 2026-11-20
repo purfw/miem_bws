@@ -47,7 +47,7 @@ func Load() (*Config, error) {
 		JoinURLKeys:        joinKeyring,
 		JoinURLKeyVersion:  envInt("JOIN_URL_ACTIVE_KEY_VERSION", 1),
 		ElasticsearchURL:   must("ELASTICSEARCH_URL"),
-		ElasticsearchIndex: env("ELASTICSEARCH_INDEX", "confhub-conferences-v1"),
+		ElasticsearchIndex: env("ELASTICSEARCH_INDEX", "confhub-conferences-v2"),
 		SearchRateLimit:    envInt("SEARCH_RATE_LIMIT", 200),
 	}
 	if c.DatabaseURL == "" {
