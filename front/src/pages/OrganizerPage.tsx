@@ -3,12 +3,16 @@ import { useNavigate } from "react-router-dom";
 import { readableError } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/ui/Button/Button";
+import { ContentEditor } from "../components/organizer/ContentEditor";
+import { TeamEditor } from "../components/organizer/TeamEditor";
+import { sessionTypeLabel, sessionTypes } from "../components/conference/sessionTypes";
 import type { Conference, ScheduleSlot } from "../types/conference";
 import styles from "./Page.module.css";
 import { dateLocale, localize, tr } from "../i18n/runtime";
 import { parseDate } from "../i18n/dates";
 
 const minimumStartDate = "2027-01-01";
+const emptyForm = { title: "", title_en: "", slug: "", description: "", description_en: "", format: "offline", start_date: "", end_date: "", registration_deadline: "", max_participants: "", city: "", location: "", topics: "", cover_image_url: "" };
 
 function statusLabel(status: Conference["status"]): string {
   const labels: Record<Conference["status"], [string, string]> = {
@@ -40,10 +44,11 @@ export function OrganizerPage() {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [editingId, setEditingId] = useState("");
-  const [form, setForm] = useState({ title: "", title_en: "", slug: "", description: "", description_en: "", format: "offline", start_date: "", end_date: "", registration_deadline: "", max_participants: "", city: "", location: "", topics: "" });
+  const [form, setForm] = useState(emptyForm);
+  const [sections, setSections] = useState<Array<{ id: string; title: string }>>([]);
   const [sessions, setSessions] = useState<ScheduleSlot[]>([]);
   const sessionsController = useRef<AbortController | null>(null);
-  const [session, setSession] = useState({ id: "", conference_id: "", title: "", slot_date: "", start_time: "09:00", end_time: "10:00", speaker_name: "", speaker_affiliation: "", room: "", description: "", session_type: "talk", join_url: "", public_at: "" });
+  const [session, setSession] = useState({ id: "", conference_id: "", title: "", slot_date: "", start_time: "09:00", end_time: "10:00", speaker_name: "", speaker_affiliation: "", room: "", description: "", session_type: "talk", section_id: "", join_url: "", public_at: "" });
 
   async function load() {
     try {
@@ -61,11 +66,18 @@ export function OrganizerPage() {
     sessionsController.current = controller;
     if (!conferenceId) {
       setSessions([]);
+      setSections([]);
       return;
     }
     try {
-      const result = await request<{ data: ScheduleSlot[] }>(`/my/conferences/${conferenceId}/sessions`, { signal: controller.signal });
-      if (!controller.signal.aborted) setSessions(result.data ?? []);
+      const [result, content] = await Promise.all([
+        request<{ data: ScheduleSlot[] }>(`/my/conferences/${conferenceId}/sessions`, { signal: controller.signal }),
+        request<{ sections: Array<{ id: string; title: string }> }>(`/my/conferences/${conferenceId}/content`, { signal: controller.signal }),
+      ]);
+      if (!controller.signal.aborted) {
+        setSessions(result.data ?? []);
+        setSections(content.sections);
+      }
     } catch (reason) {
       if (!controller.signal.aborted) setError(readableError(reason));
     }
@@ -100,13 +112,14 @@ export function OrganizerPage() {
       city: conference.city ?? "",
       location: conference.primary_venue?.address ?? "",
       topics: conference.topics.join(", "),
+      cover_image_url: conference.cover_image_url ?? "",
     });
     window.scrollTo({ top: document.body.scrollHeight / 2, behavior: "smooth" });
   }
 
   function resetConferenceForm() {
     setEditingId("");
-    setForm({ title: "", title_en: "", slug: "", description: "", description_en: "", format: "offline", start_date: "", end_date: "", registration_deadline: "", max_participants: "", city: "", location: "", topics: "" });
+    setForm(emptyForm);
   }
 
   async function saveConference(event: FormEvent) {
@@ -121,13 +134,17 @@ export function OrganizerPage() {
     }
     setBusy(true);
     try {
+      // When editing, an emptied optional field is sent as "" (or 0 for the
+      // capacity) so that the server clears it; omitting it would keep the old value.
+      const blank = editingId ? "" : undefined;
       await request(editingId ? `/conferences/${editingId}` : "/conferences/", { method: editingId ? "PATCH" : "POST", body: {
-        title: form.title, title_en: form.title_en || undefined, slug: form.slug,
-        description: form.description || undefined, description_en: form.description_en || undefined, format: form.format,
+        title: form.title, title_en: form.title_en || blank, slug: form.slug,
+        description: form.description || blank, description_en: form.description_en || blank, format: form.format,
         start_date: form.start_date, end_date: form.end_date,
-        registration_deadline: form.registration_deadline ? new Date(form.registration_deadline).toISOString() : undefined,
-        max_participants: form.max_participants ? Number(form.max_participants) : undefined,
-        city: form.city || undefined, location: form.location || undefined,
+        registration_deadline: form.registration_deadline ? new Date(form.registration_deadline).toISOString() : blank,
+        max_participants: form.max_participants ? Number(form.max_participants) : editingId ? 0 : undefined,
+        city: form.city || blank, location: form.location || blank,
+        cover_image_url: form.cover_image_url.trim() || blank,
         topics: form.topics.split(",").map((value) => value.trim()).filter(Boolean),
       }});
       setMessage(editingId ? tr("Изменения мероприятия сохранены.", "Event changes have been saved.") : tr("Черновик создан. Проверьте данные и опубликуйте мероприятие.", "Draft created. Review the details and publish the event."));
@@ -137,6 +154,7 @@ export function OrganizerPage() {
   }
 
   async function transition(conference: Conference, status: Conference["status"]) {
+    if (status === "completed" && !window.confirm(tr("Завершить мероприятие? Участникам будут выпущены сертификаты.", "Complete the event? Participation certificates will be issued."))) return;
     if (status === "cancelled" && !window.confirm(`${tr("Отменить", "Cancel")} “${localize(conference.title, conference.title_en)}”? ${tr("Участники получат уведомление.", "Participants will be notified.")}`)) return;
     setBusy(true); setError("");
     try {
@@ -157,6 +175,7 @@ export function OrganizerPage() {
         title: session.title, slot_date: session.slot_date, start_time: session.start_time, end_time: session.end_time,
         speaker_name: session.speaker_name || undefined, speaker_affiliation: session.speaker_affiliation || undefined,
         room: session.room || undefined, description: session.description || undefined, session_type: session.session_type,
+        section_id: session.section_id || undefined,
       }});
       if (session.join_url) {
         await request(`/sessions/${session.id || created.id}/link`, { method: "PUT", body: {
@@ -175,7 +194,7 @@ export function OrganizerPage() {
     setSession((current) => ({ ...current, id: slot.id, title: slot.title, slot_date: slot.slot_date,
       start_time: slot.start_time.slice(0, 5), end_time: slot.end_time.slice(0, 5), speaker_name: slot.speaker_name ?? "",
       speaker_affiliation: slot.speaker_affiliation ?? "", room: slot.room ?? "", description: slot.description ?? "",
-      session_type: slot.session_type ?? "talk", join_url: "", public_at: "" }));
+      session_type: slot.session_type ?? "talk", section_id: slot.section_id ?? "", join_url: "", public_at: "" }));
   }
 
   async function deleteSession(slot: ScheduleSlot) {
@@ -199,9 +218,13 @@ export function OrganizerPage() {
         {conference.status === "draft" && <Button disabled={busy} onClick={() => transition(conference, "registration_open")}>{tr("Опубликовать", "Publish")}</Button>}
         {conference.status === "registration_open" && <Button variant="secondary" disabled={busy} onClick={() => transition(conference, "registration_closed")}>{tr("Закрыть регистрацию", "Close registration")}</Button>}
         {conference.status === "registration_closed" && <Button variant="secondary" disabled={busy} onClick={() => transition(conference, "registration_open")}>{tr("Возобновить регистрацию", "Reopen registration")}</Button>}
+        {conference.status === "registration_closed" && <Button variant="secondary" disabled={busy} onClick={() => transition(conference, "in_progress")}>{tr("Начать мероприятие", "Start event")}</Button>}
+        {conference.status === "in_progress" && <Button variant="secondary" disabled={busy} onClick={() => transition(conference, "completed")}>{tr("Завершить", "Complete")}</Button>}
+        {conference.status === "completed" && <Button variant="ghost" disabled={busy} onClick={() => transition(conference, "archived")}>{tr("В архив", "Archive")}</Button>}
         {!["completed", "cancelled", "archived"].includes(conference.status) && <Button variant="ghost" disabled={busy} onClick={() => transition(conference, "cancelled")}>{tr("Отменить", "Cancel")}</Button>}
       </div>
     </li>)}</ul> : <p className={styles.notice}>{tr("Мероприятий пока нет.", "There are no events yet.")}</p>}
+    {items.length > 0 && <p className={styles.notice}>{tr("Статусы меняются и автоматически: регистрация закрывается после дедлайна, мероприятие начинается в день начала и завершается на следующий день после окончания.", "Statuses also change automatically: registration closes after the deadline, the event starts on its start date and completes the day after it ends.")}</p>}
 
     {(user.role !== "organizer_member" || editingId) && <><div className={styles.content}><h2>{editingId ? tr("Редактирование мероприятия", "Edit event") : tr("Новое мероприятие", "New event")}</h2></div>
     <form className={`${styles.panel} ${styles.form}`} onSubmit={saveConference}>
@@ -215,13 +238,17 @@ export function OrganizerPage() {
       <label className={styles.field}>{tr("Регистрация до", "Registration deadline")}<input type="datetime-local" value={form.registration_deadline} onChange={(event) => setForm({ ...form, registration_deadline: event.target.value })} /></label>
       <div className={styles.row}><label className={styles.field}>{tr("Город", "City")}<input value={form.city} onChange={(event) => setForm({ ...form, city: event.target.value })} /></label><label className={styles.field}>{tr("Площадка / адрес", "Venue / address")}<input value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} /></label></div>
       <label className={styles.field}>{tr("Тематики через запятую", "Comma-separated topics")}<input value={form.topics} onChange={(event) => setForm({ ...form, topics: event.target.value })} /></label>
+      <label className={styles.field}>{tr("Обложка (ссылка HTTPS на изображение)", "Cover image (HTTPS link)")}<input type="url" pattern="https://.*" maxLength={1000} value={form.cover_image_url} onChange={(event) => setForm({ ...form, cover_image_url: event.target.value })} /></label>
       <div className={styles.inlineActions}><Button type="submit" disabled={busy}>{busy ? tr("Сохраняем…", "Saving…") : editingId ? tr("Сохранить изменения", "Save changes") : tr("Создать черновик", "Create draft")}</Button>{editingId && <Button variant="ghost" type="button" disabled={busy} onClick={resetConferenceForm}>{tr("Отменить редактирование", "Cancel editing")}</Button>}</div>
-    </form></>}
+    </form>
+    {editingId && <><div className={styles.content}><h2>{tr("Секции, комитеты и партнёры", "Sections, committees and partners")}</h2></div><ContentEditor conferenceId={editingId} /><TeamEditor key={editingId} conferenceId={editingId} /></>}
+    </>}
 
     {items.length > 0 && <><div className={styles.content}><h2>{session.id ? tr("Редактировать сессию", "Edit session") : tr("Добавить сессию", "Add session")}</h2></div><form className={`${styles.panel} ${styles.form}`} onSubmit={addSession}>
       <label className={styles.field}>{tr("Мероприятие", "Event")}<select required disabled={Boolean(session.id)} value={session.conference_id} onChange={(event) => { const conference_id = event.target.value; setSession({ ...session, conference_id }); void loadSessions(conference_id); }}><option value="">{tr("Выберите", "Select")}</option>{items.filter((item) => item.status !== "cancelled").map((item) => <option key={item.id} value={item.id}>{localize(item.title, item.title_en)}</option>)}</select></label>
       <label className={styles.field}>{tr("Название сессии", "Session title")}<input required value={session.title} onChange={(event) => setSession({ ...session, title: event.target.value })} /></label>
-      <div className={styles.row}><label className={styles.field}>{tr("Дата", "Date")}<input type="date" required value={session.slot_date} onChange={(event) => setSession({ ...session, slot_date: event.target.value })} /></label><label className={styles.field}>{tr("Тип", "Type")}<input value={session.session_type} onChange={(event) => setSession({ ...session, session_type: event.target.value })} /></label></div>
+      <div className={styles.row}><label className={styles.field}>{tr("Дата", "Date")}<input type="date" required value={session.slot_date} onChange={(event) => setSession({ ...session, slot_date: event.target.value })} /></label><label className={styles.field}>{tr("Тип", "Type")}<select value={session.session_type} onChange={(event) => setSession({ ...session, session_type: event.target.value })}>{[...new Set([...sessionTypes, session.session_type])].map((type) => <option key={type} value={type}>{sessionTypeLabel(type)}</option>)}</select></label></div>
+      {sections.length > 0 && <label className={styles.field}>{tr("Секция", "Section")}<select value={session.section_id} onChange={(event) => setSession({ ...session, section_id: event.target.value })}><option value="">{tr("Без секции", "No section")}</option>{sections.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>}
       <div className={styles.row}><label className={styles.field}>{tr("Начало", "Start")}<input type="time" required value={session.start_time} onChange={(event) => setSession({ ...session, start_time: event.target.value })} /></label><label className={styles.field}>{tr("Окончание", "End")}<input type="time" required value={session.end_time} onChange={(event) => setSession({ ...session, end_time: event.target.value })} /></label></div>
       <div className={styles.row}><label className={styles.field}>{tr("Докладчик", "Speaker")}<input value={session.speaker_name} onChange={(event) => setSession({ ...session, speaker_name: event.target.value })} /></label><label className={styles.field}>{tr("Организация докладчика", "Speaker affiliation")}<input value={session.speaker_affiliation} onChange={(event) => setSession({ ...session, speaker_affiliation: event.target.value })} /></label></div>
       <label className={styles.field}>{tr("Зал", "Room")}<input value={session.room} onChange={(event) => setSession({ ...session, room: event.target.value })} /></label>

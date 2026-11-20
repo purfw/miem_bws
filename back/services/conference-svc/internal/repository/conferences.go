@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -121,6 +123,10 @@ func (f ListFilter) buildWhere(args []any) ([]string, []any) {
 			c.search_vector @@ plainto_tsquery('russian', $%d)
 			OR c.search_vector @@ plainto_tsquery('english', $%d)
 			OR c.title %% $%d`, i, i, i)
+		if prefix := PrefixTSQuery(f.Query); prefix != "" {
+			args = append(args, prefix)
+			clause += fmt.Sprintf("\n\t\t\tOR c.search_vector @@ to_tsquery('simple', $%d)", len(args))
+		}
 		if len([]rune(f.Query)) >= 3 {
 			args = append(args, "%"+likeEscape(f.Query)+"%")
 			clause += fmt.Sprintf("\n\t\t\tOR c.title ILIKE $%d", len(args))
@@ -144,8 +150,12 @@ func (f ListFilter) buildWhere(args []any) ([]string, []any) {
 		where = append(where, fmt.Sprintf(`c.format::text = ANY($%d)`, len(args)))
 	}
 	if len(f.Cities) > 0 {
-		args = append(args, f.Cities)
-		where = append(where, fmt.Sprintf(`c.city = ANY($%d)`, len(args)))
+		lowered := make([]string, 0, len(f.Cities))
+		for _, city := range f.Cities {
+			lowered = append(lowered, strings.ToLower(city))
+		}
+		args = append(args, lowered)
+		where = append(where, fmt.Sprintf(`lower(c.city) = ANY($%d)`, len(args)))
 	}
 	if f.FromDate != nil {
 		args = append(args, *f.FromDate)
@@ -156,6 +166,21 @@ func (f ListFilter) buildWhere(args []any) ([]string, []any) {
 		where = append(where, fmt.Sprintf(`c.start_date <= $%d`, len(args)))
 	}
 	return where, args
+}
+
+// PrefixTSQuery turns free text into a tsquery where every word must match
+// the start of a lexeme ("нейро геном" -> "нейро:* & геном:*").
+func PrefixTSQuery(text string) string {
+	words := strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
+	parts := make([]string, 0, len(words))
+	for _, w := range words {
+		if utf8.RuneCountInString(w) >= 2 {
+			parts = append(parts, w+":*")
+		}
+	}
+	return strings.Join(parts, " & ")
 }
 
 var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
@@ -490,4 +515,30 @@ func (r *Conferences) ReplaceScheduleInTx(ctx context.Context, tx pgx.Tx, confer
 		}
 	}
 	return nil
+}
+
+// LifecycleDue returns conferences that may need an automatic status change
+// on the given date; domain.LifecycleSteps decides which ones actually do.
+func (r *Conferences) LifecycleDue(ctx context.Context, today time.Time) ([]domain.Conference, error) {
+	q := fmt.Sprintf(`SELECT %s FROM conference_svc.conferences c
+		WHERE c.deleted_at IS NULL
+		  AND c.status IN ('registration_open','registration_closed','in_progress')
+		  AND (c.start_date <= $1 OR c.end_date < $1
+		       OR (c.status = 'registration_open' AND c.registration_deadline <= now()))
+		ORDER BY c.end_date, c.id
+		LIMIT 500`, conferenceCols)
+	rows, err := r.pool.Query(ctx, q, today)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.Conference
+	for rows.Next() {
+		var c domain.Conference
+		if err := scanConference(rows, &c); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
 }

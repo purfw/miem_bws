@@ -10,6 +10,8 @@ import { safeUrl } from "../../../api/safeUrl";
 
 interface ConferenceCardProps {
   conference: Conference;
+  /** Short labels explaining why the conference is recommended. */
+  reasons?: string[];
 }
 
 function statusLabel(status: Conference["status"]): string {
@@ -45,7 +47,7 @@ function countLabel(count: number, russian: [string, string, string], english: s
   return `${count.toLocaleString(dateLocale())} ${pluralLabel(count, russian, [english, `${english}s`])}`;
 }
 
-export function ConferenceCard({ conference }: ConferenceCardProps) {
+export function ConferenceCard({ conference, reasons }: ConferenceCardProps) {
   const navigate = useNavigate();
   const dates = formatDayRange(conference.start_date, conference.end_date, "short");
   // safeUrl() only passes http(s) URLs; URL#href percent-encodes quotes, so the quoted CSS url() cannot be broken out of.
@@ -79,6 +81,11 @@ export function ConferenceCard({ conference }: ConferenceCardProps) {
           <span>{conference.city || (conference.format === "online" ? tr("Онлайн", "Online") : tr("Город уточняется", "City to be confirmed"))}</span>
         </div>
         <h3 className={styles.title}>{localize(conference.title, conference.title_en)}</h3>
+        {reasons && reasons.length > 0 && (
+          <ul className={styles.reasons} aria-label={tr("Почему рекомендуем", "Why recommended")}>
+            {reasons.map((reason) => <li key={reason} className={styles.reason}>{reason}</li>)}
+          </ul>
+        )}
         <p className={styles.description}>{localize(conference.description || conference.topics.join(" · "), conference.description_en)}</p>
         <div className={styles.footer}>
           <div className={styles.footerMeta}>
@@ -88,8 +95,8 @@ export function ConferenceCard({ conference }: ConferenceCardProps) {
             <span>{conference.sessions_count > 0
               ? countLabel(conference.sessions_count, ["доклад в программе", "доклада в программе", "докладов в программе"], "scheduled talk")
               : tr("Программа формируется", "Programme coming soon")}</span>
-            {isUpcoming && conference.registration_deadline && <span>
-              {tr("Дедлайн", "Deadline")} {formatDeadline(conference.registration_deadline)}
+            {conference.registration_open && conference.registration_deadline && <span>
+              {tr("Регистрация до", "Register by")} {formatDeadline(conference.registration_deadline)}
             </span>}
           </div>
           <Button

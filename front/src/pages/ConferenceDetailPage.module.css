@@ -139,3 +139,15 @@
     order: -1;
   }
 }
+
+.partner {
+  display: grid;
+  gap: var(--space-1);
+  justify-items: start;
+}
+
+.partnerLogo {
+  max-width: 120px;
+  max-height: 48px;
+  object-fit: contain;
+}

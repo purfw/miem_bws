@@ -3,6 +3,7 @@ package handler
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -33,11 +34,13 @@ func (h *Organizer) ConferenceRoutes(r chi.Router) {
 	r.Post("/{id}/sessions", h.createSession)
 	r.Patch("/{id}", h.update)
 	r.Delete("/{id}", h.cancel)
+	h.ContentRoutes(r)
 }
 
 func (h *Organizer) MyRoutes(r chi.Router) {
 	r.Get("/conferences", h.mine)
 	r.Get("/conferences/{id}/sessions", h.listManagedSessions)
+	r.Get("/conferences/{id}/content", h.content)
 }
 
 func (h *Organizer) SessionRoutes(r chi.Router) {
@@ -101,7 +104,20 @@ type organizerCreateReq struct {
 	MaxParticipants      *int     `json:"max_participants,omitempty"`
 	Location             *string  `json:"location,omitempty"`
 	City                 *string  `json:"city,omitempty"`
+	CoverImageURL        *string  `json:"cover_image_url,omitempty"`
 	Topics               []string `json:"topics"`
+}
+
+// validCover accepts an empty value or an absolute https URL.
+func validCover(value *string) error {
+	if value == nil || strings.TrimSpace(*value) == "" {
+		return nil
+	}
+	cover, err := url.Parse(strings.TrimSpace(*value))
+	if err != nil || cover.Scheme != "https" || cover.Host == "" {
+		return &httputil.ValidationError{Fields: []httputil.FieldError{{Field: "cover_image_url", Message: "must be an https URL"}}}
+	}
+	return nil
 }
 
 func (h *Organizer) create(w http.ResponseWriter, r *http.Request) {
@@ -134,6 +150,13 @@ func (h *Organizer) create(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, r, &httputil.ValidationError{Fields: []httputil.FieldError{{Field: "format", Message: "offline, hybrid or online required"}}})
 		return
 	}
+	if err := validCover(in.CoverImageURL); err != nil {
+		httputil.WriteError(w, r, err)
+		return
+	}
+	if in.CoverImageURL != nil && strings.TrimSpace(*in.CoverImageURL) == "" {
+		in.CoverImageURL = nil
+	}
 	var deadline *time.Time
 	if in.RegistrationDeadline != nil && strings.TrimSpace(*in.RegistrationDeadline) != "" {
 		parsed, parseErr := time.Parse(time.RFC3339, *in.RegistrationDeadline)
@@ -147,7 +170,7 @@ func (h *Organizer) create(w http.ResponseWriter, r *http.Request) {
 		Title: in.Title, TitleEn: in.TitleEn, Slug: in.Slug, Description: in.Description,
 		DescriptionEn: in.DescriptionEn, Format: format, StartDate: start, EndDate: end,
 		RegistrationDeadline: deadline, MaxParticipants: in.MaxParticipants, Location: in.Location,
-		City: in.City, Topics: in.Topics, CreatedBy: userID, PublicationAllowed: true,
+		City: in.City, CoverImageURL: in.CoverImageURL, Topics: in.Topics, CreatedBy: userID, PublicationAllowed: true,
 		Organizers: []domain.Organizer{{Name: c.Name, Email: &c.Email, Role: "owner", Kind: domain.OrganizerKindOrganizer, UserID: &userID}},
 	})
 	if err != nil {
@@ -217,7 +240,15 @@ func organizerPatch(in updateReq) (repository.ConferencePatch, error) {
 		}
 		patch.EndDate = &value
 	}
-	if in.RegistrationDeadline != nil {
+	if in.MaxParticipants != nil && *in.MaxParticipants == 0 {
+		patch.MaxParticipants, patch.ClearMaxParticipants = nil, true
+	}
+	if err := validCover(in.CoverImageURL); err != nil {
+		return patch, err
+	}
+	if in.RegistrationDeadline != nil && strings.TrimSpace(*in.RegistrationDeadline) == "" {
+		patch.ClearRegistrationDeadline = true
+	} else if in.RegistrationDeadline != nil {
 		value, err := time.Parse(time.RFC3339, *in.RegistrationDeadline)
 		if err != nil {
 			return patch, &httputil.ValidationError{Fields: []httputil.FieldError{{Field: "registration_deadline", Message: "RFC3339"}}}

@@ -30,7 +30,7 @@ export function Hero({ data }: { data: HomeResponse | null }) {
         </span>
         <div className={styles.featuredFooter}>
           <span className={styles.featuredMeta}>
-            {featured ? `${tr("Ближайшая", "Next")} · ${formatRange(featured.start_date, featured.end_date)} · ${featured.city || tr("онлайн", "online")}` : tr("Найдите подходящее научное событие", "Find the right academic event")}
+            {featured ? `${featured.is_featured ? tr("Рекомендуем", "Featured") : featured.status === "in_progress" ? tr("Идёт сейчас", "Happening now") : tr("Ближайшая", "Next")} · ${formatRange(featured.start_date, featured.end_date)} · ${featured.city || tr("онлайн", "online")}` : tr("Найдите подходящее научное событие", "Find the right academic event")}
           </span>
           <h3 className={styles.featuredTitle}>
             {featured ? localize(featured.title, featured.title_en) : tr("Конференции для исследователей и учёных", "Conferences for researchers and academics")}

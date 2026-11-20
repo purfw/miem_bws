@@ -36,6 +36,7 @@ export interface Conference {
   max_participants?: number | null;
   sessions_count: number;
   is_favorite?: boolean;
+  is_featured?: boolean;
   created_at: string;
 }
 
@@ -203,11 +204,18 @@ export interface Application {
   title: string;
   abstract?: string | null;
   keywords: string[];
+  co_authors?: CoAuthor[];
   status: "submitted" | "under_review" | "revision_requested" | "accepted" | "rejected" | "withdrawn";
   created_at: string;
   updated_at?: string;
   moderator_comment?: string | null;
   files?: ApplicationFile[];
+}
+
+export interface CoAuthor {
+  name: string;
+  email?: string;
+  affiliation?: string;
 }
 
 export interface ApplicationFile {
@@ -226,4 +234,26 @@ export interface ApplicationReview {
   strengths?: string | null;
   weaknesses?: string | null;
   recommendation: string;
+}
+
+export type RecommendationReasonCode =
+  | "topic"
+  | "similar_text"
+  | "co_attendance"
+  | "city"
+  | "popular"
+  | "registration_open";
+
+export interface RecommendationReason {
+  code: RecommendationReasonCode;
+  value?: string;
+}
+
+export interface RecommendedConference extends Conference {
+  reasons: RecommendationReason[];
+}
+
+export interface RecommendationsResponse {
+  data: RecommendedConference[];
+  personalised: boolean;
 }

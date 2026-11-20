@@ -208,6 +208,27 @@ $$;
 
 
 --
+-- Name: touch_parent_conference(); Type: FUNCTION; Schema: conference_svc; Owner: -
+--
+
+CREATE FUNCTION conference_svc.touch_parent_conference() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    IF TG_OP IN ('UPDATE', 'DELETE') THEN
+        UPDATE conference_svc.conferences SET updated_at = now()
+        WHERE id = OLD.conference_id AND updated_at < now();
+    END IF;
+    IF TG_OP IN ('INSERT', 'UPDATE') THEN
+        UPDATE conference_svc.conferences SET updated_at = now()
+        WHERE id = NEW.conference_id AND updated_at < now();
+    END IF;
+    RETURN NULL;
+END;
+$$;
+
+
+--
 -- Name: touch_updated_at(); Type: FUNCTION; Schema: conference_svc; Owner: -
 --
 
@@ -2420,6 +2441,27 @@ CREATE TRIGGER trg_review_touch BEFORE UPDATE ON application_svc.reviews FOR EAC
 --
 
 CREATE TRIGGER trg_conf_touch BEFORE UPDATE ON conference_svc.conferences FOR EACH ROW EXECUTE FUNCTION conference_svc.touch_updated_at();
+
+
+--
+-- Name: organizers trg_organizers_touch_conference; Type: TRIGGER; Schema: conference_svc; Owner: -
+--
+
+CREATE TRIGGER trg_organizers_touch_conference AFTER INSERT OR DELETE OR UPDATE ON conference_svc.organizers FOR EACH ROW EXECUTE FUNCTION conference_svc.touch_parent_conference();
+
+
+--
+-- Name: schedule_slots trg_slots_touch_conference; Type: TRIGGER; Schema: conference_svc; Owner: -
+--
+
+CREATE TRIGGER trg_slots_touch_conference AFTER INSERT OR DELETE OR UPDATE ON conference_svc.schedule_slots FOR EACH ROW EXECUTE FUNCTION conference_svc.touch_parent_conference();
+
+
+--
+-- Name: sections trg_sections_touch_conference; Type: TRIGGER; Schema: conference_svc; Owner: -
+--
+
+CREATE TRIGGER trg_sections_touch_conference AFTER INSERT OR DELETE OR UPDATE ON conference_svc.sections FOR EACH ROW EXECUTE FUNCTION conference_svc.touch_parent_conference();
 
 
 --

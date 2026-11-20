@@ -3,6 +3,7 @@ package handler
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"net"
 	"net/http"
@@ -41,6 +42,7 @@ func (h *Public) Routes(r chi.Router) {
 	r.Get("/search", h.list)
 	r.Get("/{id}", h.detail)
 	r.Get("/{id}/calendar.ics", h.calendar)
+	r.Get("/{id}/similar", h.similar)
 
 	r.Get("/{id}/program", h.program)
 	r.Get("/{id}/sessions", h.program)
@@ -107,6 +109,11 @@ func (h *Public) HomeRoutes(r chi.Router) {
 	r.Get("/", h.home)
 }
 
+// RecommendationRoutes is mounted under /api/v1/home with optional auth.
+func (h *Public) RecommendationRoutes(r chi.Router) {
+	r.Get("/recommendations", h.recommendations)
+}
+
 type venueDTO struct {
 	Name    string `json:"name"`
 	Address string `json:"address"`
@@ -134,6 +141,7 @@ type cardDTO struct {
 	MaxParticipants      *int      `json:"max_participants,omitempty"`
 	SessionsCount        int       `json:"sessions_count"`
 	IsFavorite           *bool     `json:"is_favorite,omitempty"`
+	IsFeatured           bool      `json:"is_featured"`
 	CreatedAt            string    `json:"created_at"`
 }
 
@@ -156,6 +164,7 @@ func toCard(c *domain.Conference) cardDTO {
 		ParticipantsCount: c.Participants,
 		MaxParticipants:   c.MaxParticipants,
 		SessionsCount:     c.SessionCount,
+		IsFeatured:        c.IsFeatured,
 		CreatedAt:         c.CreatedAt.UTC().Format(time.RFC3339),
 	}
 	if c.Topics == nil {
@@ -403,6 +412,7 @@ func (h *Public) list(w http.ResponseWriter, r *http.Request) {
 	var confs []domain.Conference
 	var total int
 	var topics, formats, cities []repository.FacetBucket
+	searched := false
 	if lq.search != "" {
 		if err := h.checkSearchRate(r); err != nil {
 			httputil.WriteError(w, r, err)
@@ -414,16 +424,24 @@ func (h *Public) list(w http.ResponseWriter, r *http.Request) {
 			FromDate: lq.filter.FromDate, ToDate: lq.filter.ToDate, Sort: lq.filter.Sort,
 			Page: lq.page, PerPage: lq.perPage,
 		})
-		if searchErr != nil {
-			httputil.WriteError(w, r, errors.Join(httputil.ErrUnavailable, searchErr))
+		switch {
+		case searchErr == nil:
+			searched = true
+			confs, err = h.repo.CardsByIDs(r.Context(), result.IDs, viewer)
+			total = result.Total
+			topics = searchBuckets(result.Topics)
+			formats = searchBuckets(result.Formats)
+			cities = searchBuckets(result.Cities)
+		case errors.Is(searchErr, searchsvc.ErrUnavailable):
+			// Elasticsearch is down or still building the index: fall back to
+			// PostgreSQL full-text search below.
+			slog.WarnContext(r.Context(), "search unavailable, using database", "err", searchErr)
+		default:
+			httputil.WriteError(w, r, searchErr)
 			return
 		}
-		confs, err = h.repo.CardsByIDs(r.Context(), result.IDs, viewer)
-		total = result.Total
-		topics = searchBuckets(result.Topics)
-		formats = searchBuckets(result.Formats)
-		cities = searchBuckets(result.Cities)
-	} else {
+	}
+	if !searched {
 		confs, total, err = h.repo.ListPage(r.Context(), lq.filter)
 		if err == nil {
 			topics, formats, cities, err = h.repo.Facets(r.Context(), lq.filter)
@@ -681,6 +699,7 @@ type scheduleDTO struct {
 	SlotDate           string  `json:"slot_date"`
 	StartTime          string  `json:"start_time"`
 	EndTime            string  `json:"end_time"`
+	SessionType        string  `json:"session_type"`
 }
 
 func toSlot(s *domain.ScheduleSlot) scheduleDTO {
@@ -689,7 +708,7 @@ func toSlot(s *domain.ScheduleSlot) scheduleDTO {
 		SpeakerName: s.SpeakerName, SpeakerAffiliation: s.SpeakerAff,
 		Description: s.Description, Room: s.Room,
 		SlotDate:  s.SlotDate.Format("2006-01-02"),
-		StartTime: s.StartTime, EndTime: s.EndTime,
+		StartTime: s.StartTime, EndTime: s.EndTime, SessionType: s.SessionType,
 	}
 	if s.SectionID != nil {
 		v := s.SectionID.String()

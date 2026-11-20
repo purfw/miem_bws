@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { ApiError, readableError } from "../api/client";
-import { safeRedirectUrl } from "../api/safeUrl";
+import { safeRedirectUrl, safeUrl } from "../api/safeUrl";
+import { ProgramView } from "../components/conference/ProgramView";
+import { Recommendations } from "../components/recommendations/Recommendations";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/ui/Button/Button";
 import { ButtonLink } from "../components/ui/Button/ButtonLink";
@@ -268,15 +270,32 @@ function ConferenceDetails() {
           </>
         )}
         {tab === "program" && (
-          <><h2>{tr("Программа", "Programme")}</h2>{conference.schedule.length ? <ul className={styles.list}>{conference.schedule.map((slot) => <li className={styles.listItem} key={slot.id}><strong>{slot.start_time.slice(0, 5)}–{slot.end_time.slice(0, 5)} · {slot.title}</strong><small>{parseDate(slot.slot_date).toLocaleDateString(dateLocale())}{slot.room ? ` · ${slot.room}` : ""}{slot.speaker_name ? ` · ${slot.speaker_name}` : ""}</small>{activeRegistration?.status === "confirmed" && <Button variant="secondary" disabled={joinBusy === slot.id} onClick={() => joinSession(slot.id)}>{joinBusy === slot.id ? tr("Проверяем доступ…", "Checking access…") : tr("Подключиться", "Join session")}</Button>}</li>)}</ul> : <p>{tr("Программа ещё не опубликована.", "The programme has not been published yet.")}</p>}</>
+          <>
+            <h2>{tr("Программа", "Programme")}</h2>
+            <ProgramView
+              schedule={conference.schedule}
+              sections={conference.sections}
+              onJoin={activeRegistration?.status === "confirmed" ? joinSession : undefined}
+              joinBusy={joinBusy}
+            />
+          </>
         )}
         {tab === "organizers" && (
           <><h2>{tr("Организационный комитет", "Organizing committee")}</h2>{conference.organizers.length ? <ul className={styles.list}>{conference.organizers.map((person) => <li className={styles.listItem} key={person.id}><strong>{person.name}</strong><small>{[person.job_title, person.affiliation].filter(Boolean).join(" · ")}</small></li>)}</ul> : <p>{tr("Состав оргкомитета ещё не опубликован.", "The organizing committee has not been published yet.")}</p>}<h2>{tr("Программный комитет", "Programme committee")}</h2>{conference.program_committee.length ? <ul className={styles.list}>{conference.program_committee.map((person) => <li className={styles.listItem} key={person.id}><strong>{person.name}</strong><small>{person.affiliation}</small></li>)}</ul> : <p>{tr("Состав программного комитета ещё не опубликован.", "The programme committee has not been published yet.")}</p>}</>
         )}
         {tab === "partners" && (
-          <><h2>{tr("Партнёры", "Partners")}</h2>{conference.partners.length ? <ul className={styles.list}>{conference.partners.map((partner) => <li className={styles.listItem} key={partner.id}><strong>{partner.name}</strong>{partner.website_url && <a className={styles.link} href={partner.website_url} target="_blank" rel="noreferrer">{tr("Открыть сайт", "Open website")}</a>}</li>)}</ul> : <p>{tr("Партнёры пока не указаны.", "No partners have been listed yet.")}</p>}</>
+          <><h2>{tr("Партнёры", "Partners")}</h2>{conference.partners.length ? <ul className={styles.list}>{conference.partners.map((partner) => {
+            const website = safeUrl(partner.website_url);
+            const logo = safeUrl(partner.logo_url);
+            return <li className={`${styles.listItem} ${layout.partner}`} key={partner.id}>{logo && <img className={layout.partnerLogo} src={logo} alt="" loading="lazy" />}<strong>{partner.name}</strong>{partner.tier && <small>{partner.tier}</small>}{website && <a className={styles.link} href={website} target="_blank" rel="noreferrer noopener">{tr("Открыть сайт", "Open website")}</a>}</li>;
+          })}</ul> : <p>{tr("Партнёры пока не указаны.", "No partners have been listed yet.")}</p>}</>
         )}
       </div>
+      <Recommendations
+        source={`/conferences/${conference.id}/similar`}
+        eyebrow={tr("Ещё по теме", "More like this")}
+        title={tr("Похожие конференции", "Similar conferences")}
+      />
       </div>
       </div>
     </section>

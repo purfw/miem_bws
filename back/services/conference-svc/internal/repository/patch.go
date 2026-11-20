@@ -2,6 +2,7 @@ package repository
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/confhub/conference-svc/internal/domain"
@@ -25,6 +26,28 @@ type ConferencePatch struct {
 	CoverImageURL        *string
 	IsFeatured           *bool
 	Topics               *[]string
+
+	// ClearRegistrationDeadline and ClearMaxParticipants set the column to
+	// NULL. For optional text fields an empty string clears the value.
+	ClearRegistrationDeadline bool
+	ClearMaxParticipants      bool
+}
+
+// nullIfBlank stores an empty optional text field as NULL.
+func nullIfBlank(s string) any {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	return s
+}
+
+// StatusOnly reports whether the patch changes nothing but the status. Status
+// changes skip date validation so that events created before the current
+// date policy can still move through their lifecycle.
+func (p ConferencePatch) StatusOnly() bool {
+	status := p.Status
+	p.Status = nil
+	return status != nil && p == ConferencePatch{}
 }
 
 func (p ConferencePatch) Build() ([]string, []any) {
@@ -38,16 +61,16 @@ func (p ConferencePatch) Build() ([]string, []any) {
 		add("title", *p.Title)
 	}
 	if p.TitleEn != nil {
-		add("title_en", *p.TitleEn)
+		add("title_en", nullIfBlank(*p.TitleEn))
 	}
 	if p.Slug != nil {
 		add("slug", *p.Slug)
 	}
 	if p.Description != nil {
-		add("description", *p.Description)
+		add("description", nullIfBlank(*p.Description))
 	}
 	if p.DescriptionEn != nil {
-		add("description_en", *p.DescriptionEn)
+		add("description_en", nullIfBlank(*p.DescriptionEn))
 	}
 	if p.Status != nil {
 		args = append(args, string(*p.Status))
@@ -63,20 +86,24 @@ func (p ConferencePatch) Build() ([]string, []any) {
 	if p.EndDate != nil {
 		add("end_date", *p.EndDate)
 	}
-	if p.RegistrationDeadline != nil {
+	if p.ClearRegistrationDeadline {
+		set = append(set, "registration_deadline = NULL")
+	} else if p.RegistrationDeadline != nil {
 		add("registration_deadline", *p.RegistrationDeadline)
 	}
-	if p.MaxParticipants != nil {
+	if p.ClearMaxParticipants {
+		set = append(set, "max_participants = NULL")
+	} else if p.MaxParticipants != nil {
 		add("max_participants", *p.MaxParticipants)
 	}
 	if p.Location != nil {
-		add("location", *p.Location)
+		add("location", nullIfBlank(*p.Location))
 	}
 	if p.City != nil {
-		add("city", *p.City)
+		add("city", nullIfBlank(*p.City))
 	}
 	if p.CoverImageURL != nil {
-		add("cover_image_url", *p.CoverImageURL)
+		add("cover_image_url", nullIfBlank(*p.CoverImageURL))
 	}
 	if p.IsFeatured != nil {
 		add("is_featured", *p.IsFeatured)

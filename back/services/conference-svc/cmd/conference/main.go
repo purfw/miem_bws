@@ -30,6 +30,7 @@ import (
 
 	"github.com/confhub/conference-svc/internal/config"
 	"github.com/confhub/conference-svc/internal/handler"
+	"github.com/confhub/conference-svc/internal/identity"
 	"github.com/confhub/conference-svc/internal/projection"
 	"github.com/confhub/conference-svc/internal/repository"
 	searchsvc "github.com/confhub/conference-svc/internal/search"
@@ -133,6 +134,7 @@ func main() {
 	registrationH := handler.NewRegistrations(registrationRepo, rdb)
 	organizerH := handler.NewOrganizer(svc, repo, registrationRepo, linkCipher)
 	internal := handler.NewInternal(svc, repo, registrationRepo)
+	membersH := handler.NewMembers(repo, identity.NewClient(cfg.IdentitySvcURL, cfg.ServiceTokenSecret))
 	healthH := handler.NewHealth(pool, rdb, nc)
 
 	r.Route("/api/v1/conferences", func(r chi.Router) {
@@ -140,6 +142,7 @@ func main() {
 		pub.Routes(r)
 		registrationH.ConferenceRoutes(r)
 		organizerH.ConferenceRoutes(r)
+		membersH.Routes(r)
 	})
 	r.Route("/api/v1/registrations", func(r chi.Router) {
 		r.Use(jwtVerifier.Middleware(false))
@@ -156,6 +159,7 @@ func main() {
 	})
 	r.Route("/api/v1/home", func(r chi.Router) {
 		pub.HomeRoutes(r)
+		r.With(jwtVerifier.Middleware(true)).Group(pub.RecommendationRoutes)
 	})
 	r.Route("/api/v1/search", func(r chi.Router) {
 		r.Use(jwtVerifier.Middleware(true))
@@ -191,6 +195,8 @@ func main() {
 			slog.Error("search indexer", "err", err)
 		}
 	}()
+
+	go runLifecycle(ctx, svc)
 
 	// Reconcile counters after manual edits or interrupted migrations.
 	go func() {
@@ -229,4 +235,24 @@ func main() {
 	shutdown, sc := context.WithTimeout(context.Background(), 15*time.Second)
 	defer sc()
 	_ = transport.Shutdown(shutdown, srv)
+}
+
+// runLifecycle advances conference statuses by date once a minute.
+func runLifecycle(ctx context.Context, svc *service.Service) {
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for {
+		if n, err := svc.AdvanceLifecycle(ctx, time.Now()); err != nil {
+			if !errors.Is(err, context.Canceled) {
+				slog.Error("conference lifecycle", "err", err)
+			}
+		} else if n > 0 {
+			slog.Info("conference lifecycle", "transitions", n)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }

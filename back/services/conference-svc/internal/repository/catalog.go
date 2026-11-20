@@ -176,6 +176,7 @@ func (r *Conferences) Hero(ctx context.Context) (*domain.Conference, error) {
 		WHERE c.deleted_at IS NULL
 		  AND c.publication_allowed=true
 		  AND c.status IN ('registration_open','registration_closed','in_progress')
+		  AND c.end_date >= current_date
 		ORDER BY c.is_featured DESC,
 		         (c.start_date >= current_date) DESC,
 		         c.start_date ASC,
