@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Hero } from "../components/home/Hero/Hero";
 import { ConferenceCatalog } from "../components/home/ConferenceCatalog/ConferenceCatalog";
+import { Recommendations } from "../components/recommendations/Recommendations";
+import { tr } from "../i18n/runtime";
 import { useAuth } from "../auth/useAuth";
 import { readableError } from "../api/client";
 import type { HomeResponse } from "../types/conference";
@@ -23,6 +25,12 @@ export function HomePage() {
     <>
       {error && <p className={styles.error} role="alert">{error}</p>}
       <Hero data={home} />
+      <Recommendations
+        source="/home/recommendations"
+        eyebrow={tr("Рекомендации", "Recommendations")}
+        title={tr("Подобрали для вас", "Picked for you")}
+        fallbackTitle={tr("Популярные конференции", "Popular conferences")}
+      />
       <ConferenceCatalog />
     </>
   );

@@ -1,0 +1,26 @@
+.section {
+  padding: var(--space-6) 0 0;
+}
+
+.eyebrow {
+  font-weight: 500;
+  font-size: 11px;
+  line-height: 140%;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-light);
+}
+
+.title {
+  font-family: var(--font3);
+  font-weight: 700;
+  font-size: 28px;
+  line-height: 115%;
+  margin: var(--space-2) 0 var(--space-5);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--space-5);
+}
